@@ -391,7 +391,7 @@ const ResultsTab = ({
                   <td>
                     {r.video_url || r.audio_url ? (
                       <a 
-                        href={r.video_url || r.audio_url || '#'} 
+                        href={`https://eudist.animemusicquiz.com/${r.video_url || r.audio_url || ''}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="song-title"
@@ -576,7 +576,7 @@ const SongsTab = ({
                   <td>
                     {s.video_url || s.audio_url ? (
                       <a 
-                        href={s.video_url || s.audio_url || '#'} 
+                        href={`https://eudist.animemusicquiz.com/${s.video_url || s.audio_url || ''}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="song-title"

@@ -131,7 +131,7 @@ const SortableItem = ({
       <div style={{ flex: 1, minWidth: 0 }}>
         {song.video_url || song.audio_url ? (
           <a 
-            href={song.video_url || song.audio_url || '#'} 
+            href={`https://eudist.animemusicquiz.com/${song.video_url || song.audio_url || ''}`} 
             target="_blank" 
             rel="noopener noreferrer"
             className="song-title" 

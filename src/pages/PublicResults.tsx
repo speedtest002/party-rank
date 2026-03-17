@@ -197,7 +197,7 @@ export default function PublicResults() {
                           <td>
                             {song.video_url || song.audio_url ? (
                               <a 
-                                href={song.video_url || song.audio_url || '#'} 
+                                href={`https://eudist.animemusicquiz.com/${song.video_url || song.audio_url || ''}`} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="song-title" 
@@ -267,7 +267,7 @@ export default function PublicResults() {
                             <td style={{ position: 'sticky', left: 60, zIndex: 5, background: 'var(--surface)', width: 280, minWidth: 280, borderBottom: '1px solid var(--border)' }}>
                               {song.video_url || song.audio_url ? (
                                 <a 
-                                  href={song.video_url || song.audio_url || '#'} 
+                                  href={`https://eudist.animemusicquiz.com/${song.video_url || song.audio_url || ''}`} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   className="song-title" 
