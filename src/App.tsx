@@ -1,0 +1,22 @@
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import Home from './pages/Home';
+import PartyRankList from './pages/PartyRankList';
+import MasterDashboard from './pages/MasterDashboard';
+import ParticipantRank from './pages/ParticipantRank';
+import PublicResults from './pages/PublicResults';
+
+const App = () => {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/party-rank" element={<PartyRankList />} />
+      <Route path="/party-rank/:slug/master" element={<MasterDashboard />} />
+      <Route path="/party-rank/:slug/vote" element={<ParticipantRank />} />
+      <Route path="/party-rank/:slug" element={<PublicResults />} />
+      <Route path="*" element={<div className="error-view"><h1>404</h1><p>Page Not Found</p></div>} />
+    </Routes>
+  );
+};
+
+export default App;
