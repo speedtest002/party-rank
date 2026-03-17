@@ -129,7 +129,19 @@ const SortableItem = ({
 
       {/* Song info */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="song-title" style={{ fontSize: 14 }}>{song.song_title}</div>
+        {song.video_url || song.audio_url ? (
+          <a 
+            href={song.video_url || song.audio_url || '#'} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="song-title" 
+            style={{ fontSize: 14 }}
+          >
+            {song.song_title}
+          </a>
+        ) : (
+          <div className="song-title" style={{ fontSize: 14 }}>{song.song_title}</div>
+        )}
         <div className="song-sub">{song.artist && `${song.artist} · `}{song.anime}</div>
       </div>
 

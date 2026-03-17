@@ -195,7 +195,19 @@ export default function PublicResults() {
                             </span>
                           </td>
                           <td>
-                            <div className="song-title" style={{ fontWeight: 600 }}>{song.song_title}</div>
+                            {song.video_url || song.audio_url ? (
+                              <a 
+                                href={song.video_url || song.audio_url || '#'} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="song-title" 
+                                style={{ fontWeight: 600 }}
+                              >
+                                {song.song_title}
+                              </a>
+                            ) : (
+                              <div className="song-title" style={{ fontWeight: 600 }}>{song.song_title}</div>
+                            )}
                             {song.artist && (
                               <div className="song-sub" style={{ opacity: 0.7 }}>
                                 {song.artist}
@@ -253,7 +265,19 @@ export default function PublicResults() {
                               <span style={{ fontWeight: 700, color: 'var(--muted)' }}>#{song.final_rank}</span>
                             </td>
                             <td style={{ position: 'sticky', left: 60, zIndex: 5, background: 'var(--surface)', width: 280, minWidth: 280, borderBottom: '1px solid var(--border)' }}>
-                              <div className="song-title" style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{song.song_title}</div>
+                              {song.video_url || song.audio_url ? (
+                                <a 
+                                  href={song.video_url || song.audio_url || '#'} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="song-title" 
+                                  style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+                                >
+                                  {song.song_title}
+                                </a>
+                              ) : (
+                                <div className="song-title" style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{song.song_title}</div>
+                              )}
                               {song.artist && <div className="song-sub" style={{ fontSize: 11, opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.artist}</div>}
                             </td>
                             <td style={{ position: 'sticky', left: 340, zIndex: 5, background: 'var(--surface)', width: 180, minWidth: 180, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>

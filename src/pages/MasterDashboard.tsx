@@ -389,7 +389,18 @@ const ResultsTab = ({
                 <tr key={r.ann_song_id}>
                   <td><span className="rank-num">#{r.final_rank}</span></td>
                   <td>
-                    <div className="song-title">{r.song_title}</div>
+                    {r.video_url || r.audio_url ? (
+                      <a 
+                        href={r.video_url || r.audio_url || '#'} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="song-title"
+                      >
+                        {r.song_title}
+                      </a>
+                    ) : (
+                      <div className="song-title">{r.song_title}</div>
+                    )}
                     <div className="song-sub">{r.artist}</div>
                   </td>
                   <td style={{ fontSize: 13 }}>
@@ -563,7 +574,18 @@ const SongsTab = ({
                 <tr key={s.ann_song_id}>
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>{s.ann_song_id}</td>
                   <td>
-                    <div className="song-title">{s.song_title}</div>
+                    {s.video_url || s.audio_url ? (
+                      <a 
+                        href={s.video_url || s.audio_url || '#'} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="song-title"
+                      >
+                        {s.song_title}
+                      </a>
+                    ) : (
+                      <div className="song-title">{s.song_title}</div>
+                    )}
                     <div className="song-sub">{s.artist}</div>
                   </td>
                   <td style={{ fontSize: 13 }}>

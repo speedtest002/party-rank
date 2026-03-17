@@ -301,7 +301,7 @@ async function handlePost(context: EventContext, client: Client) {
     await client.query(
       `INSERT INTO songs (pr_id, position, ann_song_id, ann_id, song_id, anime, song_title, artist, song_type, audio_url, video_url)
        SELECT $1, unnest($2::int[]), unnest($3::int[]), unnest($4::int[]), unnest($5::int[]), unnest($6::text[]), unnest($7::text[]), unnest($8::text[]), unnest($9::smallint[]), unnest($10::text[]), unnest($11::text[])`,
-      [prId, rows.map(() => ++nextPos), rows.map(r => r.ann_song_id), rows.map(r => r.ann_id), rows.map(r => r.song_id), rows.map(r => r.anime_en ?? r.anime_ja ?? "Unknown"), rows.map(r => r.song_title), rows.map(r => r.artist ?? null), rows.map(r => Number(r.song_type)), rows.map(r => r.audio_url ?? null), rows.map(r => r.video_url ?? null)]
+      [prId, rows.map(() => ++nextPos), rows.map(r => r.ann_song_id), rows.map(r => r.ann_id), rows.map(r => r.song_id), rows.map(r => r.anime_ja ?? r.anime_en ?? "Unknown"), rows.map(r => r.song_title), rows.map(r => r.artist ?? null), rows.map(r => Number(r.song_type)), rows.map(r => r.audio_url ?? null), rows.map(r => r.video_url ?? null)]
     );
     return json({ ok: true, added: rows.length });
   }
