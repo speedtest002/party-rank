@@ -101,6 +101,16 @@ export const onRequest = async (context: EventContext) => {
     await client.connect();
 
     try {
+      // 1. Ensure owner exists in 'users' table (FIX for FK Violation)
+      await client.query(
+        `INSERT INTO users (discord_id, last_login_at)
+         VALUES ($1, NOW())
+         ON CONFLICT (discord_id) DO UPDATE SET
+           last_login_at = EXCLUDED.last_login_at`,
+        [finalOwnerId]
+      );
+
+      // 2. Insert the Party Rank
       const res = await client.query(
         `INSERT INTO party_ranks (slug, name, description, created_by_discord_id, score_min, score_max)
          VALUES ($1, $2, $3, $4, $5, $6)
