@@ -85,7 +85,16 @@ export const onRequest = async (context: EventContext) => {
 
   try {
     const body: any = await request.json();
-    const { slug, name, description, score_min, score_max, created_by_discord_id } = body;
+    const { 
+      slug, name, description, 
+      score_min, score_max, 
+      created_by_discord_id,
+      deadline,
+      discord_guild_id,
+      discord_channel_id,
+      discord_thread_id,
+      discord_message_id
+    } = body;
 
     if (!slug || !name) {
       return json({ error: "Slug và tên là bắt buộc." }, 400);
@@ -112,8 +121,12 @@ export const onRequest = async (context: EventContext) => {
 
       // 2. Insert the Party Rank
       const res = await client.query(
-        `INSERT INTO party_ranks (slug, name, description, created_by_discord_id, score_min, score_max)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO party_ranks (
+          slug, name, description, created_by_discord_id, 
+          score_min, score_max, deadline,
+          discord_guild_id, discord_channel_id, discord_thread_id, discord_message_id
+        )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [
           slug, 
@@ -121,7 +134,12 @@ export const onRequest = async (context: EventContext) => {
           description ?? null, 
           finalOwnerId, 
           score_min ?? 0, 
-          score_max ?? 10
+          score_max ?? 10,
+          deadline ?? null,
+          discord_guild_id ?? null,
+          discord_channel_id ?? null,
+          discord_thread_id ?? null,
+          discord_message_id ?? null
         ]
       );
       return json({ ok: true, partyRank: res.rows[0] });
