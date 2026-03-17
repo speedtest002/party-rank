@@ -107,7 +107,7 @@ CREATE TABLE participants (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   pr_id           UUID NOT NULL REFERENCES party_ranks(id) ON DELETE CASCADE,
 
-  discord_id      TEXT NOT NULL,
+  discord_id      TEXT NOT NULL REFERENCES users(discord_id) ON DELETE CASCADE,
   discord_username TEXT,
   discord_avatar  TEXT,
 

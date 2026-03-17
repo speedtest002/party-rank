@@ -60,7 +60,30 @@ async function resolveDiscordId(
       (a) => a.provider === "discord" || a.provider === "oauth_discord"
     );
 
-    return discordAccount?.externalId ?? null;
+    if (!discordAccount || !discordAccount.externalId) return null;
+
+    const discordId = discordAccount.externalId;
+    const discordUsername = user.username ?? discordAccount.username ?? "Unknown";
+    const discordAvatar = user.imageUrl || (discordAccount as any).imageUrl || null;
+
+    // --- Sync to 'users' table ---
+    const client = new Client({ connectionString: env.DB.connectionString });
+    await client.connect();
+    try {
+      await client.query(
+        `INSERT INTO users (discord_id, discord_username, discord_avatar, last_login_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (discord_id) DO UPDATE SET
+           discord_username = EXCLUDED.discord_username,
+           discord_avatar   = EXCLUDED.discord_avatar,
+           last_login_at    = EXCLUDED.last_login_at`,
+        [discordId, discordUsername, discordAvatar]
+      );
+    } finally {
+      await client.end();
+    }
+
+    return discordId;
   } catch (err) {
     console.error("Auth error:", err);
     return null;
