@@ -1,8 +1,16 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+import { useSession, signIn, signOut } from '../lib/auth-client';
 
 export default function Home() {
+  const { data: session, isPending } = useSession();
+
+  const handleLogin = async () => {
+    await signIn.social({
+      provider: "discord",
+    });
+  };
+
   const cardStyle: React.CSSProperties = {
     backgroundColor: 'var(--surface)',
     border: '1px solid var(--border)',
@@ -40,15 +48,38 @@ export default function Home() {
     }}>
       <header className="top-header">
         <div className="top-header-inner" style={{ height: 60, display: 'flex', alignItems: 'center', padding: '0 24px' }}>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-            <SignedIn><UserButton /></SignedIn>
-            <SignedOut>
-              <SignInButton mode="modal">
-                <button className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 13 }}>
-                  Login
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {isPending ? (
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>Loading...</span>
+            ) : session ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {session.user.image && (
+                    <img 
+                      src={session.user.image} 
+                      alt="avatar" 
+                      style={{ width: 32, height: 32, borderRadius: '50%' }} 
+                    />
+                  )}
+                  <span style={{ fontSize: 14 }}>{session.user.name}</span>
+                </div>
+                <button 
+                  onClick={() => signOut()} 
+                  className="btn" 
+                  style={{ padding: '6px 12px', fontSize: 12, border: '1px solid var(--border)' }}
+                >
+                  Logout
                 </button>
-              </SignInButton>
-            </SignedOut>
+              </>
+            ) : (
+              <button 
+                onClick={handleLogin} 
+                className="btn btn-primary" 
+                style={{ padding: '8px 16px', fontSize: 13 }}
+              >
+                Login with Discord
+              </button>
+            )}
           </div>
         </div>
       </header>

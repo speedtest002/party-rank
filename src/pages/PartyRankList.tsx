@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+import { useSession, signIn, signOut } from '../lib/auth-client';
 
 interface PRSummary {
   slug: string;
@@ -25,6 +25,8 @@ type FilterType = 'ALL' | 'ACTIVE' | 'DONE';
 
 export default function PartyRankList() {
   const navigate = useNavigate();
+  const { data: session, isPending } = useSession();
+  
   const { data, error, isLoading } = useSWR('/api/party-rank', fetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
@@ -69,6 +71,10 @@ export default function PartyRankList() {
     }
   };
 
+  const handleLogin = async () => {
+    await signIn.social({ provider: 'discord' });
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg)', color: 'var(--text)' }}>
       
@@ -82,15 +88,30 @@ export default function PartyRankList() {
           >
             ← Home
           </button>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
-            <SignedIn><UserButton /></SignedIn>
-            <SignedOut>
-              <SignInButton mode="modal">
-                <button className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 13 }}>
-                  Login
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {isPending ? (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</span>
+            ) : session ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {session.user.image && (
+                    <img src={session.user.image} alt="avatar" style={{ width: 28, height: 28, borderRadius: '50%' }} />
+                  )}
+                  <span style={{ fontSize: 13 }}>{session.user.name}</span>
+                </div>
+                <button 
+                  onClick={() => signOut()} 
+                  className="btn" 
+                  style={{ padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)' }}
+                >
+                  Logout
                 </button>
-              </SignInButton>
-            </SignedOut>
+              </>
+            ) : (
+              <button onClick={handleLogin} className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 13 }}>
+                Login
+              </button>
+            )}
           </div>
         </div>
       </header>

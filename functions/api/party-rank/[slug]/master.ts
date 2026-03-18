@@ -1,5 +1,5 @@
 import { Client } from "pg";
-import { verifyToken, createClerkClient } from "@clerk/backend";
+import { getAuth } from "../../../lib/auth";
 
 // ----------------------------------------------------------------
 // Types
@@ -7,7 +7,8 @@ import { verifyToken, createClerkClient } from "@clerk/backend";
 interface Env {
   DB:         { connectionString: string };  // partyrank DB
   ANISONG_DB: { connectionString: string };  // anisongdb (read-only)
-  CLERK_SECRET_KEY: string;
+  BETTER_AUTH_SECRET: string;
+  APP_URL: string;
   BOT_SECRET?: string;
 }
 
@@ -39,49 +40,30 @@ const getAnisongClient = (env: Env) =>
 const authMaster = async (request: Request, env: Env): Promise<string | null> => {
   const header = request.headers.get("Authorization") ?? "";
   const [scheme, token] = header.split(" ");
-  if (scheme !== "Bearer" || !token) return null;
 
   // 1. Check Bot Secret first
-  if (env.BOT_SECRET && token === env.BOT_SECRET) {
+  if (scheme === "Bearer" && env.BOT_SECRET && token === env.BOT_SECRET) {
     return "BOT";
   }
 
-  // 2. Clerk JWT
+  // 2. Better Auth Session
   try {
-    const payload = await verifyToken(token, {
-      secretKey: env.CLERK_SECRET_KEY,
+    const auth = getAuth(env);
+    const sessionRes = await auth.api.getSession({
+        headers: request.headers
     });
-    if (!payload.sub) return null;
-
-    const clerkClient = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
-    const user = await clerkClient.users.getUser(payload.sub);
-    const discordAccount = user.externalAccounts.find(
-      (a: any) => a.provider === "discord" || a.provider === "oauth_discord"
-    );
     
-    const discordId = discordAccount?.externalId ?? null;
-
-    if (discordId) {
-      const dbClient = getClient(env);
-      await dbClient.connect();
-      try {
-        await dbClient.query(
-          `INSERT INTO users (discord_id, discord_username, discord_avatar, last_login_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (discord_id) DO UPDATE SET
-             discord_username = EXCLUDED.discord_username,
-             discord_avatar   = EXCLUDED.discord_avatar,
-             last_login_at    = EXCLUDED.last_login_at`,
-          [discordId, user.username ?? (discordAccount as any)?.username ?? "Unknown", user.imageUrl]
-        );
-      } finally {
-        await dbClient.end();
-      }
-    }
-
-    return discordId;
+    if (!sessionRes || !sessionRes.user) return null;
+    
+    const user = sessionRes.user;
+    // Better Auth 'user' table already has discord_id if we map it, 
+    // or we can use the internal id. 
+    // Looking at the schema, we use discord_id as a primary identifier in many places.
+    // In our migration, we Renamed 'users' to 'user' and kept 'discord_id'.
+    
+    return (user as any).discord_id || null;
   } catch (err) {
-    console.error("JWT verification failed:", err);
+    console.error("Better Auth session check failed:", err);
     return null;
   }
 };
@@ -238,13 +220,13 @@ async function handlePost(context: EventContext, client: Client) {
       if (parseInt(countRes.rows[0].count) >= max_participants) return json({ error: "Đã đạt giới hạn người tham gia." }, 400);
     }
 
-    // Ensure user exists in 'users' table to avoid FK issues later
+    // Ensure user exists in 'user' table to avoid FK issues later
     await client.query(
-      `INSERT INTO users (discord_id, discord_username, discord_avatar)
+      `INSERT INTO "user" (discord_id, discord_username, discord_avatar)
        VALUES ($1, $2, $3)
        ON CONFLICT (discord_id) DO UPDATE SET
-         discord_username = COALESCE(EXCLUDED.discord_username, users.discord_username),
-         discord_avatar   = COALESCE(EXCLUDED.discord_avatar, users.discord_avatar)`,
+         discord_username = COALESCE(EXCLUDED.discord_username, "user".discord_username),
+         discord_avatar   = COALESCE(EXCLUDED.discord_avatar, "user".discord_avatar)`,
       [discord_id, discord_username ?? null, discord_avatar ?? null]
     );
 
@@ -344,7 +326,7 @@ export const onRequest = async (context: EventContext) => {
   await client.connect();
   try {
     const checkRes = await client.query(
-      `SELECT pr.created_by_discord_id, u.role FROM party_ranks pr LEFT JOIN users u ON u.discord_id = $2 WHERE pr.slug = $1`,
+      `SELECT pr.created_by_discord_id, u.role FROM party_ranks pr LEFT JOIN "user" u ON u.discord_id = $2 WHERE pr.slug = $1`,
       [prSlug, userDiscordId]
     );
 

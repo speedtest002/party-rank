@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useAuth, SignedIn, SignedOut, SignIn, UserButton } from '@clerk/clerk-react';
 import useSWR from 'swr';
+import { useSession, signIn, signOut } from '../lib/auth-client';
 import {
   DndContext,
   closestCenter,
@@ -34,9 +34,8 @@ interface AppData {
   previousScores: Record<number, { rank: number; score: number }>;
 }
 
-const fetcher = async (url: string, getToken: () => Promise<string | null>) => {
-  const token = await getToken();
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
   const data = (await res.json()) as any;
   if (!res.ok) {
     const error = new Error(data.error || 'Fetch failed') as any;
@@ -177,11 +176,11 @@ const SortableItem = ({
 export default function ParticipantRank() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { data: session, isPending } = useSession();
 
   const { data, error, isLoading, mutate } = useSWR(
-    isLoaded && isSignedIn && slug ? `/api/party-rank/${slug}/vote` : null,
-    (url: string) => fetcher(url, getToken),
+    !isPending && session && slug ? `/api/party-rank/${slug}/vote` : null,
+    fetcher,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
@@ -259,12 +258,10 @@ export default function ParticipantRank() {
 
     try {
       setSubmitting(true);
-      const authToken = await getToken();
       const res = await fetch(`/api/party-rank/${slug}/vote`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`
         },
         body: JSON.stringify({ scores: payload }),
       });
@@ -279,13 +276,19 @@ export default function ParticipantRank() {
     }
   };
 
-  if (!isLoaded) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>Loading...</div>;
-  if (!isSignedIn) {
+  if (isPending) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>Loading...</div>;
+  if (!session) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)', padding: 24 }}>
         <div className="panel" style={{ maxWidth: 400, width: '100%', padding: 40, textAlign: 'center' }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Login to Vote</h1>
-          <SignIn routing="hash" fallbackRedirectUrl={window.location.pathname} />
+          <button 
+            onClick={() => signIn.social({ provider: 'discord' })} 
+            className="btn btn-primary" 
+            style={{ width: '100%', padding: '12px' }}
+          >
+            Login with Discord
+          </button>
         </div>
       </div>
     );
@@ -361,8 +364,17 @@ export default function ParticipantRank() {
             <div style={{ fontSize: 13, color: 'var(--muted)', marginLeft: 16 }}>
               Welcome, <strong style={{ color: 'var(--text)' }}>{participant.discord_username ?? 'Participant'}</strong>
             </div>
-            <div style={{ marginLeft: 'auto' }}>
-              <UserButton />
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {session.user.image && (
+                <img src={session.user.image} alt="avatar" style={{ width: 28, height: 28, borderRadius: '50%' }} />
+              )}
+              <button 
+                onClick={() => signOut()} 
+                className="btn" 
+                style={{ padding: '4px 8px', fontSize: 11, border: '1px solid var(--border)' }}
+              >
+                Logout
+              </button>
             </div>
           </div>
         </div>

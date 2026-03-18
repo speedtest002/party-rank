@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/clerk-react';
+import { useSession, signIn, signOut } from '../lib/auth-client';
 import useSWR from 'swr';
 import type { PartyRank, SongResult } from '../types';
 
@@ -22,6 +22,7 @@ const songTypeLabel = (t: 1 | 2 | 3) => (t === 1 ? 'OP' : t === 2 ? 'ED' : 'IN')
 export default function PublicResults() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { data: session, isPending } = useSession();
 
   const [activeTab, setActiveTab] = useState<'summary' | 'breakdown'>('summary');
 
@@ -93,15 +94,31 @@ export default function PublicResults() {
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
               {(partyRank.status === 'open' || partyRank.status === 'closed') && (
                 <Link to={`/party-rank/${slug}/vote`} className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 13, textDecoration: 'none' }}>
-                  Join Event
+                  Vote now
                 </Link>
               )}
-              <SignedIn><UserButton /></SignedIn>
-              <SignedOut>
-                <SignInButton mode="modal">
-                  <button className="btn btn-primary" style={{ padding: '8px 16px', fontSize: 13 }}>Login</button>
-                </SignInButton>
-              </SignedOut>
+              {session ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {session.user.image && (
+                    <img src={session.user.image} alt="avatar" style={{ width: 28, height: 28, borderRadius: '50%' }} />
+                  )}
+                  <button 
+                    onClick={() => signOut()} 
+                    className="btn btn-ghost" 
+                    style={{ padding: '4px 8px', fontSize: 11 }}
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => signIn.social({ provider: 'discord' })} 
+                  className="btn btn-primary" 
+                  style={{ padding: '8px 16px', fontSize: 13 }}
+                >
+                  Login
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1,9 +1,10 @@
 import { Client } from "pg";
-import { verifyToken, createClerkClient } from "@clerk/backend";
+import { getAuth } from "../../lib/auth";
 
 interface Env {
   DB: { connectionString: string };
-  CLERK_SECRET_KEY: string;
+  BETTER_AUTH_SECRET: string;
+  APP_URL: string;
   BOT_SECRET?: string; // Secret for Discord bot auth
 }
 
@@ -34,27 +35,22 @@ const getClient = (env: Env) =>
 async function authUser(request: Request, env: Env): Promise<AuthResult> {
   const header = request.headers.get("Authorization") ?? "";
   const [scheme, token] = header.split(" ");
-  if (scheme !== "Bearer" || !token) return { discord_id: null, is_bot: false };
-
+  
   // 1. Check Bot Secret first (if configured)
-  if (env.BOT_SECRET && token === env.BOT_SECRET) {
-    return { discord_id: "BOT", is_bot: true }; // "BOT" placeholder, will use body.created_by_discord_id
+  if (scheme === "Bearer" && env.BOT_SECRET && token === env.BOT_SECRET) {
+    return { discord_id: "BOT", is_bot: true };
   }
 
-  // 2. Fallback to Clerk JWT
+  // 2. Better Auth Session
   try {
-    const payload = await verifyToken(token, {
-      secretKey: env.CLERK_SECRET_KEY,
+    const auth = getAuth(env);
+    const sessionRes = await auth.api.getSession({
+        headers: request.headers
     });
-    if (!payload.sub) return { discord_id: null, is_bot: false };
-
-    const clerkClient = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
-    const user = await clerkClient.users.getUser(payload.sub);
-    const discordAccount = user.externalAccounts.find(
-      (a: any) => a.provider === "discord" || a.provider === "oauth_discord"
-    );
     
-    return { discord_id: discordAccount?.externalId ?? null, is_bot: false };
+    if (!sessionRes || !sessionRes.user) return { discord_id: null, is_bot: false };
+    
+    return { discord_id: (sessionRes.user as any).discord_id || null, is_bot: false };
   } catch {
     return { discord_id: null, is_bot: false };
   }
@@ -110,9 +106,9 @@ export const onRequest = async (context: EventContext) => {
     await client.connect();
 
     try {
-      // 1. Ensure owner exists in 'users' table (FIX for FK Violation)
+      // 1. Ensure owner exists in 'user' table (FIX for FK Violation)
       await client.query(
-        `INSERT INTO users (discord_id, last_login_at)
+        `INSERT INTO "user" (discord_id, last_login_at)
          VALUES ($1, NOW())
          ON CONFLICT (discord_id) DO UPDATE SET
            last_login_at = EXCLUDED.last_login_at`,

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { SignedIn, SignedOut, SignIn, UserButton, useAuth } from '@clerk/clerk-react';
+import { useSession, signIn, signOut } from '../lib/auth-client';
 import type { PartyRank, Participant, SongResult, Song } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -18,9 +18,8 @@ type TabId = 'progress' | 'results' | 'songs' | 'settings';
 
 // ─── Fetcher ──────────────────────────────────────────────────────────────────
 
-const fetcher = async (url: string, getToken: () => Promise<string | null>) => {
-  const token = await getToken();
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
   const data = (await res.json()) as any;
   if (!res.ok) throw new Error(data.error || 'Fetch failed');
   return data as MasterData;
@@ -136,12 +135,10 @@ const Sidebar = ({
 const ProgressTab = ({
   data,
   slug,
-  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
-  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { progress, participants } = data;
@@ -154,10 +151,9 @@ const ProgressTab = ({
   );
 
   const postAction = async (body: object) => {
-    const token = await getToken();
     const res = await fetch(`/api/party-rank/${slug}/master`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const d = (await res.json()) as any;
@@ -276,12 +272,10 @@ const ProgressTab = ({
 const ResultsTab = ({
   data,
   slug,
-  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
-  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { results, partyRank, progress } = data;
@@ -306,10 +300,9 @@ const ResultsTab = ({
     if (!confirm(`Confirm: ${labels[action]}?`)) return;
     setLoading(true);
     try {
-      const token = await getToken();
       const res = await fetch(`/api/party-rank/${slug}/master`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
       const d = (await res.json()) as any;
@@ -436,12 +429,10 @@ const ResultsTab = ({
 const SongsTab = ({
   data,
   slug,
-  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
-  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { results: songs, partyRank } = data;
@@ -459,10 +450,9 @@ const SongsTab = ({
   const isLocked = partyRank.status === 'closed' || partyRank.status === 'revealed';
 
   const postAction = async (body: object) => {
-    const token = await getToken();
     const res = await fetch(`/api/party-rank/${slug}/master`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const d = (await res.json()) as any;
@@ -618,12 +608,10 @@ const SongsTab = ({
 const SettingsTab = ({
   data,
   slug,
-  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
-  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { partyRank } = data;
@@ -648,24 +636,23 @@ const SettingsTab = ({
   const handleSave = async () => {
     setSaving(true);
     setMsg(null);
+    const payload: Record<string, unknown> = {
+      name:          form.name,
+      description:   form.description || null,
+      spotify_url:   form.spotify_url || null,
+      youtube_url:   form.youtube_url || null,
+      starts_at:     form.starts_at || null,
+      deadline:      form.deadline || null,
+      score_min:     parseFloat(form.score_min),
+      score_max:     parseFloat(form.score_max),
+      allow_resubmit: form.allow_resubmit,
+      discord_guild_id: form.discord_guild_id || null,
+      discord_thread_id: form.discord_thread_id || null,
+    };
     try {
-      const token = await getToken();
-      const payload: Record<string, unknown> = {
-        name:          form.name,
-        description:   form.description || null,
-        spotify_url:   form.spotify_url || null,
-        youtube_url:   form.youtube_url || null,
-        starts_at:     form.starts_at || null,
-        deadline:      form.deadline || null,
-        score_min:     parseFloat(form.score_min),
-        score_max:     parseFloat(form.score_max),
-        allow_resubmit: form.allow_resubmit,
-        discord_guild_id: form.discord_guild_id || null,
-        discord_thread_id: form.discord_thread_id || null,
-      };
       const res = await fetch(`/api/party-rank/${slug}/master`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'update', data: payload }),
       });
       const d = (await res.json()) as any;
@@ -782,12 +769,12 @@ const StatCard = ({
 export default function MasterDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { data: session, isPending } = useSession();
   const [activeTab, setActiveTab] = useState<TabId>('progress');
 
   const { data, error, isLoading, mutate } = useSWR(
-    isLoaded && isSignedIn && slug ? `/api/party-rank/${slug}/master` : null,
-    (url: string) => fetcher(url, getToken),
+    !isPending && session && slug ? `/api/party-rank/${slug}/master` : null,
+    fetcher,
     { 
       refreshInterval: 60000, 
       revalidateOnFocus: false, 
@@ -798,21 +785,19 @@ export default function MasterDashboard() {
   );
 
   // ── Auth guards ──────────────────────────────────────────────────────────────
-
-  if (!isLoaded) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>
-        <div style={{ color: 'var(--muted)' }}>Loading...</div>
-      </div>
-    );
-  }
-
-  if (!isSignedIn) {
+  if (isPending) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>Loading...</div>;
+  if (!session) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)', padding: 24 }}>
         <div className="panel" style={{ maxWidth: 400, width: '100%', padding: 40, textAlign: 'center' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Login to Continue</h1>
-          <SignIn routing="hash" fallbackRedirectUrl={window.location.pathname} />
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Master Login</h1>
+          <button 
+            onClick={() => signIn.social({ provider: 'discord' })} 
+            className="btn btn-primary" 
+            style={{ width: '100%', padding: '12px' }}
+          >
+            Login with Discord
+          </button>
         </div>
       </div>
     );
@@ -874,9 +859,19 @@ export default function MasterDashboard() {
               <button className="btn btn-ghost btn-sm" onClick={() => mutate()} title="Refresh">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
               </button>
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {session.user.image && (
+                  <img src={session.user.image} alt="avatar" style={{ width: 32, height: 32, borderRadius: '50%' }} />
+                )}
+                <span style={{ fontSize: 14 }}>{session.user.name}</span>
+                <button 
+                  onClick={() => signOut()} 
+                  className="btn" 
+                  style={{ padding: '6px 12px', fontSize: 12, border: '1px solid var(--border)' }}
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
 
@@ -901,20 +896,12 @@ export default function MasterDashboard() {
           <Sidebar progress={data.progress} participants={data.participants} />
 
           {/* Content area */}
-          <main>
-            {activeTab === 'progress' && (
-              <ProgressTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
-            )}
-            {activeTab === 'results' && (
-              <ResultsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
-            )}
-            {activeTab === 'songs' && (
-              <SongsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
-            )}
-            {activeTab === 'settings' && (
-              <SettingsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
-            )}
-          </main>
+          <div className="dashboard-content">
+            {activeTab === 'progress' && <ProgressTab data={data} slug={slug!} mutate={mutate} />}
+            {activeTab === 'results'  && <ResultsTab  data={data} slug={slug!} mutate={mutate} />}
+            {activeTab === 'songs'    && <SongsTab    data={data} slug={slug!} mutate={mutate} />}
+            {activeTab === 'settings' && <SettingsTab data={data} slug={slug!} mutate={mutate} />}
+          </div>
         </div>
       </div>
     </>

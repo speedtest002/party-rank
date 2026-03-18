@@ -1,12 +1,13 @@
 import { Client } from "pg";
-import { verifyToken, createClerkClient } from "@clerk/backend";
+import { getAuth } from "../../../lib/auth";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
-  CLERK_SECRET_KEY: string;
+  BETTER_AUTH_SECRET: string;
+  APP_URL: string;
 }
 
 interface ScoreInput {
@@ -41,49 +42,16 @@ async function resolveDiscordId(
   request: Request,
   env: Env
 ): Promise<string | null> {
-  const header = request.headers.get("Authorization") ?? "";
-  const [scheme, token] = header.split(" ");
-  if (scheme !== "Bearer" || !token) return null;
-
   try {
-    const payload = await verifyToken(token, {
-      secretKey: env.CLERK_SECRET_KEY,
+    const auth = getAuth(env);
+    const sessionRes = await auth.api.getSession({
+        headers: request.headers
     });
-
-    if (!payload.sub) return null;
-
-    // Call Clerk API to get the user's external accounts (Discord)
-    const clerkClient = createClerkClient({ secretKey: env.CLERK_SECRET_KEY });
-    const user = await clerkClient.users.getUser(payload.sub);
-
-    const discordAccount = user.externalAccounts.find(
-      (a) => a.provider === "discord" || a.provider === "oauth_discord"
-    );
-
-    if (!discordAccount || !discordAccount.externalId) return null;
-
-    const discordId = discordAccount.externalId;
-    const discordUsername = user.username ?? discordAccount.username ?? "Unknown";
-    const discordAvatar = user.imageUrl || (discordAccount as any).imageUrl || null;
-
-    // --- Sync to 'users' table ---
-    const client = new Client({ connectionString: env.DB.connectionString });
-    await client.connect();
-    try {
-      await client.query(
-        `INSERT INTO users (discord_id, discord_username, discord_avatar, last_login_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (discord_id) DO UPDATE SET
-           discord_username = EXCLUDED.discord_username,
-           discord_avatar   = EXCLUDED.discord_avatar,
-           last_login_at    = EXCLUDED.last_login_at`,
-        [discordId, discordUsername, discordAvatar]
-      );
-    } finally {
-      await client.end();
-    }
-
-    return discordId;
+    
+    if (!sessionRes || !sessionRes.user) return null;
+    
+    const user = sessionRes.user;
+    return (user as any).discord_id || null;
   } catch (err) {
     console.error("Auth error:", err);
     return null;
