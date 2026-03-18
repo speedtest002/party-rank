@@ -322,14 +322,16 @@ async function handlePost(context: EventContext) {
     try {
       await client.query("BEGIN");
 
+      // Clear existing scores for this participant in this PR
+      await client.query(
+        `DELETE FROM scores WHERE participant_id = $1 AND pr_id = $2`,
+        [participant.id, participant.pr_id]
+      );
+
+      // Bulk insert new scores
       await client.query(
         `INSERT INTO scores (participant_id, ann_song_id, pr_id, rank, score)
-         SELECT $1, unnest($2::int[]), $3, unnest($4::int[]), unnest($5::numeric[])
-         ON CONFLICT (participant_id, ann_song_id)
-         DO UPDATE SET
-           rank       = EXCLUDED.rank,
-           score      = EXCLUDED.score,
-           updated_at = NOW()`,
+         SELECT $1, unnest($2::int[]), $3, unnest($4::int[]), unnest($5::numeric[])`,
         [participant.id, arrSongIds, participant.pr_id, arrRanks, arrScores]
       );
 
