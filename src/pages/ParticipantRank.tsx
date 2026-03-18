@@ -185,7 +185,7 @@ export default function ParticipantRank() {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: false,
-      dedupingInterval: 600000, // 10 minutes
+      dedupingInterval: 2000, // 2 seconds (was 10 minutes)
       shouldRetryOnError: false,
     }
   );
@@ -196,7 +196,7 @@ export default function ParticipantRank() {
   const [msg, setMsg]           = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    if (data && items.length === 0) {
+    if (data) {
       let initialSongs = [...data.songs];
       const initialScores: Record<number, string> = {};
 
@@ -214,7 +214,7 @@ export default function ParticipantRank() {
       setItems(initialSongs);
       setScores(initialScores);
     }
-  }, [data, items.length]);
+  }, [data]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
