@@ -35,7 +35,7 @@ export async function enqueueVideoRender(
       return null;
     }
 
-    const result = await response.json();
+    const result = await response.json() as { jobId?: string };
     return result.jobId || "enqueued";
   } catch (err) {
     console.error("[queue] Enqueue error:", err);
