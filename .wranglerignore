@@ -1,0 +1,5 @@
+# Ignore pg-boss (not needed in Functions, only in worker)
+node_modules/pg-boss
+
+# Ignore Remotion package (not needed in Functions)
+apps/render
