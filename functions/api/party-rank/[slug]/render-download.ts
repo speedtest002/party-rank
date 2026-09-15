@@ -1,17 +1,11 @@
 import { Client } from "pg";
-import { createRequire } from "module";
-import path from "path";
-import fs from "fs";
-
-const require = createRequire(import.meta.url);
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
-  // For local file serving in development
-  RENDER_OUTPUT_DIR?: string;
+  RENDER_WORKER_URL?: string;
 }
 
 interface EventContext {
@@ -34,7 +28,7 @@ const getClient = (env: Env) =>
 
 // ----------------------------------------------------------------
 // GET /[slug]/render-download/:annSongId
-// Serves the rendered MP4 file
+// Returns download URL pointing to render worker
 // ----------------------------------------------------------------
 async function handleGet(context: EventContext) {
   const { env, params } = context;
@@ -46,12 +40,10 @@ async function handleGet(context: EventContext) {
   await client.connect();
 
   try {
-    // Get party rank id
     const prRes = await client.query(`SELECT id FROM party_ranks WHERE slug = $1`, [pr]);
     if (prRes.rowCount === 0) return json({ error: "Party Rank not found." }, 404);
     const prId = prRes.rows[0].id;
 
-    // Get render record
     const renderRes = await client.query(
       `SELECT video_path, status FROM renders WHERE pr_id = $1 AND ann_song_id = $2`,
       [prId, annSongId]
@@ -63,37 +55,13 @@ async function handleGet(context: EventContext) {
       return json({ error: "Video not ready.", status }, 400);
     }
 
-    // Resolve file path
-    // In production, this would be served from object storage (R2/S3)
-    // For now, serve from local filesystem
-    const outputDir = env.RENDER_OUTPUT_DIR || path.join(process.cwd(), "apps/render/out");
-    const filePath = path.join(outputDir, videoPath);
+    // Return download URL pointing to render worker
+    const workerUrl = env.RENDER_WORKER_URL || "http://localhost:3001";
+    const downloadUrl = `${workerUrl}/download/${prId}/${videoPath}`;
 
-    if (!fs.existsSync(filePath)) {
-      console.error("[render-download] File not found:", filePath);
-      return json({ error: "Video file not found on disk." }, 404);
-    }
-
-    const stat = fs.statSync(filePath);
-    const fileStream = fs.createReadStream(filePath);
-
-    // Convert Node.js stream to Web ReadableStream
-    const readable = new ReadableStream({
-      start(controller) {
-        fileStream.on("data", (chunk) => controller.enqueue(chunk));
-        fileStream.on("end", () => controller.close());
-        fileStream.on("error", (err) => controller.error(err));
-      },
-    });
-
-    return new Response(readable, {
-      status: 200,
-      headers: {
-        "Content-Type": "video/mp4",
-        "Content-Length": stat.size.toString(),
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": `attachment; filename="${pr}-${annSongId}.mp4"`,
-      },
+    return json({
+      downloadUrl,
+      filename: `${pr}-${annSongId}.mp4`,
     });
   } finally {
     await client.end();

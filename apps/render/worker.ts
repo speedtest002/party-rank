@@ -197,6 +197,36 @@ async function main() {
       return;
     }
 
+    // Download endpoint: /download/{prId}/{filename}
+    if (req.method === "GET" && req.url?.startsWith("/download/")) {
+      const parts = req.url.split("/");
+      // /download/{prId}/{filename}
+      if (parts.length >= 4) {
+        const prId = parts[2];
+        const filename = parts.slice(3).join("/");
+        const filePath = path.join(__dirname, "out", prId, filename);
+
+        if (!fs.existsSync(filePath)) {
+          res.writeHead(404, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "File not found" }));
+          return;
+        }
+
+        const stat = fs.statSync(filePath);
+        const fileStream = fs.createReadStream(filePath);
+
+        res.writeHead(200, {
+          "Content-Type": "video/mp4",
+          "Content-Length": stat.size.toString(),
+          "Accept-Ranges": "bytes",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        });
+
+        fileStream.pipe(res);
+        return;
+      }
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
   });
