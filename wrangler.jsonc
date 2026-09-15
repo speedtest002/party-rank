@@ -24,6 +24,7 @@
   },
 
   "env": {
+    "preview": {
       "hyperdrive": [
         {
           "binding": "DB",
@@ -32,7 +33,21 @@
         {
           "binding": "ANISONG_DB",
           "id": "0cc435036c004f60ab25c561403bd5e3"
-        }]
+        }
+      ]
+    },
+    "production": {
+      "hyperdrive": [
+        {
+          "binding": "DB",
+          "id": "c8d701257a214b148916897d232f2894"
+        },
+        {
+          "binding": "ANISONG_DB",
+          "id": "0cc435036c004f60ab25c561403bd5e3"
+        }
+      ]
     }
+  }
 }
 
