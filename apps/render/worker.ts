@@ -5,6 +5,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { Client } from "pg";
+import { createServer } from "http";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,8 +15,10 @@ interface VideoRenderJob {
 }
 
 const QUEUE_NAME = "video-render";
-const RENDER_TIMEOUT_MS = 60000; // 60 seconds per song
+const RENDER_TIMEOUT_MS = 60000;
 const MAX_RETRIES = 1;
+const WORKER_PORT = parseInt(process.env.WORKER_PORT || "3001", 10);
+const WORKER_SECRET = process.env.WORKER_SECRET || process.env.BOT_SECRET || "";
 
 async function updateRenderStatus(
   db: Client,
@@ -145,6 +148,69 @@ async function main() {
     process.exit(1);
   }
 
+  // Start HTTP server for enqueue endpoint
+  const server = createServer(async (req, res) => {
+    // CORS headers
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/enqueue") {
+      // Verify auth
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace("Bearer ", "");
+      if (WORKER_SECRET && token !== WORKER_SECRET) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+
+      let body = "";
+      for await (const chunk of req) {
+        body += chunk;
+      }
+
+      try {
+        const job = JSON.parse(body);
+        const boss = new PgBoss(process.env.DATABASE_URL!);
+        await boss.start();
+        const jobId = await boss.send("video-render", job, {
+          retryLimit: 1,
+          retryDelay: 30000,
+          priority: 0,
+        });
+        await boss.stop();
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, jobId }));
+      } catch (err) {
+        console.error("[worker] Enqueue error:", err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Enqueue failed" }));
+      }
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Not found" }));
+  });
+
+  server.listen(WORKER_PORT, () => {
+    console.log(`[worker] HTTP server listening on port ${WORKER_PORT}`);
+  });
+
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error("[worker] DATABASE_URL not set");
+    process.exit(1);
+  }
+
   const boss = new PgBoss(connectionString);
   await boss.start();
 
@@ -156,7 +222,7 @@ async function main() {
         await processJob(job);
       } catch (err) {
         console.error("[worker] Job processing failed:", err);
-        throw err; // Let pg-boss handle retry
+        throw err;
       }
     }
   });
@@ -164,6 +230,7 @@ async function main() {
   // Graceful shutdown
   process.on("SIGINT", async () => {
     console.log("[worker] Shutting down...");
+    server.close();
     await boss.stop();
     process.exit(0);
   });

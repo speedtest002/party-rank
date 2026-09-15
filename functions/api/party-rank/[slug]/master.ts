@@ -1,6 +1,6 @@
 import { Client } from "pg";
 import { getAuth } from "../../../lib/auth";
-import { getQueue, enqueueVideoRender, VideoRenderJob, QUEUE_NAME } from "../../../lib/queue";
+import { enqueueVideoRender, VideoRenderJob } from "../../../lib/queue";
 
 // ----------------------------------------------------------------
 // Types
@@ -195,11 +195,9 @@ async function handlePatch(context: EventContext, client: Client) {
       [prId]
     );
 
-    // Enqueue pg-boss render job
+    // Enqueue render job via HTTP to render worker
     try {
-      const queue = getQueue(env.DB.connectionString);
-      await queue.start(); // Ensure queue is started
-      await enqueueVideoRender(queue, { prId, songIds } as VideoRenderJob);
+      await enqueueVideoRender(env, { prId, songIds } as VideoRenderJob);
     } catch (queueErr) {
       console.error("[master] Failed to enqueue render job:", queueErr);
       // Don't fail the reveal if queue fails - worker can be started manually
