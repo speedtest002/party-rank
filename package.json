@@ -1,0 +1,36 @@
+{
+  "name": "partyrank",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler pages deploy dist",
+    "db:push": "bun run scripts/db-push.ts",
+    "secret:set": "wrangler secret put"
+  },
+  "dependencies": {
+    "better-auth": "^1.5.5",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "pg-boss": "^12.32.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.1",
+    "swr": "^2.4.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240529.0",
+    "@types/pg": "^8.18.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "pg": "^8.18.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0",
+    "wrangler": "^4.75.0"
+  }
+}

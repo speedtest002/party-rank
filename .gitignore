@@ -1,0 +1,9 @@
+.wrangler/
+.env
+node_modules/
+tests/
+test-results/
+.env.local
+dist/
+*.pem
+*.log

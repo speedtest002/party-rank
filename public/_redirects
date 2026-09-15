@@ -1,0 +1,3 @@
+# SPA Redirects
+# Serve index.html for all paths that don't match a static file or API
+/*  /index.html  200
