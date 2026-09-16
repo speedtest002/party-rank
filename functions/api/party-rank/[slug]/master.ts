@@ -1,6 +1,5 @@
 import { Client } from "pg";
 import { resolveAuthUser } from "../../../lib/clerk";
-import { enqueueVideoRender, VideoRenderJob } from "../../../lib/queue";
 
 // ----------------------------------------------------------------
 // Types
@@ -153,41 +152,13 @@ async function handlePatch(context: EventContext, client: Client) {
   if (action === "reveal") {
     if (currentStatus !== "closed") return json({ error: "Chỉ có thể reveal sau khi đã closed." }, 400);
 
-    let songIds: number[] = [];
-    await client.query("BEGIN");
-    try {
-      await client.query(`UPDATE party_ranks SET status = 'revealed' WHERE id = $1`, [prId]);
+    const songsRes = await client.query(
+      `SELECT ann_song_id FROM songs WHERE pr_id = $1 ORDER BY position ASC`,
+      [prId]
+    );
+    const songIds = songsRes.rows.map((r: any) => r.ann_song_id);
 
-      // Insert render tracking rows for each song in this PR
-      const songsRes = await client.query(
-        `SELECT ann_song_id FROM songs WHERE pr_id = $1 ORDER BY position ASC`,
-        [prId]
-      );
-      songIds = songsRes.rows.map((r) => r.ann_song_id);
-
-      await client.query(
-        `INSERT INTO renders (pr_id, ann_song_id, status)
-         SELECT $1, ann_song_id, 'pending'
-         FROM songs
-         WHERE pr_id = $1
-         ON CONFLICT (pr_id, ann_song_id) DO NOTHING`,
-        [prId]
-      );
-
-      await client.query("COMMIT");
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[master] reveal transaction failed:", err);
-      return json({ error: "Reveal lỗi: không thể tạo render jobs." }, 500);
-    }
-
-    // Enqueue render job via HTTP to render worker
-    try {
-      await enqueueVideoRender(env, { prId, slug: pr, songIds } as VideoRenderJob);
-    } catch (queueErr) {
-      console.error("[master] Failed to enqueue render job:", queueErr);
-      // Don't fail the reveal if queue fails - worker can be started manually
-    }
+    await client.query(`UPDATE party_ranks SET status = 'revealed' WHERE id = $1`, [prId]);
 
     return json({ ok: true, status: "revealed", songIds });
   }

@@ -7,6 +7,3 @@ test-results/
 dist/
 *.pem
 *.log
-# Remotion bundle output
-apps/render/build/
-apps/render/out/

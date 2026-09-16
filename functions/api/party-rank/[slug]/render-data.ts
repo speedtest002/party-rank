@@ -1,12 +1,15 @@
 import { Client } from "pg";
-import { isBotSecret } from "../../../lib/clerk";
+import { resolveAuthUser } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
   BOT_SECRET?: string;
+  VIDEO_CDN_PREFIX?: string;
 }
 
 interface EventContext {
@@ -180,12 +183,11 @@ async function handleGet(context: EventContext) {
 
     for (const song of songsRes.rows) {
       const songScores = scoresBySong.get(song.ann_song_id) || [];
-      if (songScores.length === 0) continue; // skip songs with no votes
 
-      // Find min/max score for this song
+      // Find min/max score (0 for songs with no votes)
       const scoresOnly = songScores.map((s) => s.score);
-      const minScore = Math.min(...scoresOnly);
-      const maxScore = Math.max(...scoresOnly);
+      const minScore = scoresOnly.length > 0 ? Math.min(...scoresOnly) : 0;
+      const maxScore = scoresOnly.length > 0 ? Math.max(...scoresOnly) : 0;
 
       // Build participants array with isHighest/isLowest
       const participants = songScores.map((sc) => {
@@ -220,8 +222,8 @@ async function handleGet(context: EventContext) {
           coverUrl: song.cover_url || "",
           clipStartSeconds: Number(song.clip_start_seconds),
           clipDurationSeconds: Number(song.clip_duration_seconds),
-          avgScore: Number(song.avg_score),
-          voteCount: Number(song.vote_count),
+          avgScore: Number(song.avg_score ?? 0),
+          voteCount: Number(song.vote_count ?? 0),
         },
         participants,
       });
@@ -253,18 +255,55 @@ export const onRequest = async (context: EventContext) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  // Internal endpoint — only the render worker (authenticated by BOT_SECRET) may use it
-  if (!isBotSecret(request, env)) {
+  // Accept Clerk JWT (admin/user) or BOT_SECRET (render worker)
+  const authUser = await resolveAuthUser(request, env);
+  if (!authUser) {
     return new Response(JSON.stringify({ error: "Unauthorized." }), {
       status: 401,
       headers: { ...cors, "Content-Type": "application/json" },
     });
   }
 
+  // Master-only: owner, admin, or BOT
+  if (authUser !== "BOT") {
+    const { slug } = params;
+    const client = new Client({ connectionString: env.DB.connectionString });
+    await client.connect();
+    try {
+      const checkRes = await client.query(
+        `SELECT pr.created_by_discord_id, u.role FROM party_ranks pr LEFT JOIN users u ON u.discord_id = $2 WHERE pr.slug = $1`,
+        [slug, authUser]
+      );
+      if (checkRes.rowCount === 0) {
+        return json({ error: "Party Rank not found." }, 404);
+      }
+      const { created_by_discord_id, role } = checkRes.rows[0];
+      const isOwner = created_by_discord_id === authUser;
+      const isAdmin = role === "admin";
+      if (!isOwner && !isAdmin) {
+        return new Response(JSON.stringify({ error: "Forbidden." }), {
+          status: 403,
+          headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+    } finally {
+      await client.end();
+    }
+  }
+
   try {
     const res = await handleGet(context);
-    for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
-    return res;
+    // Wrap array response with videoCdnPrefix for browser render
+    const body = await res.json() as any;
+    const wrapped = Array.isArray(body)
+      ? { videoCdnPrefix: env.VIDEO_CDN_PREFIX || "", songs: body }
+      : body;
+    const wrappedRes = new Response(JSON.stringify(wrapped), {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
+    for (const [k, v] of Object.entries(cors)) wrappedRes.headers.set(k, v);
+    return wrappedRes;
   } catch (err) {
     console.error("[render-data] error:", err);
     return json({ error: "Internal Server Error." }, 500);

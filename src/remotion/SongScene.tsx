@@ -1,10 +1,10 @@
 import { useVideoConfig } from "remotion";
-import { RenderInputProps } from "../types";
-import { VideoPlayer } from "../components/VideoPlayer";
-import { TitleBar } from "../components/TitleBar";
-import { ParticipantGrid } from "../components/ParticipantGrid";
-import { TotalScoreBox } from "../components/TotalScoreBox";
-import { CaptionBar } from "../components/CaptionBar";
+import { RenderInputProps } from "./types";
+import { VideoPlayer } from "./components/VideoPlayer";
+import { TitleBar } from "./components/TitleBar";
+import { ParticipantGrid } from "./components/ParticipantGrid";
+import { TotalScoreBox } from "./components/TotalScoreBox";
+import { CaptionBar } from "./components/CaptionBar";
 
 interface SongSceneProps {
   songData: RenderInputProps["songData"];

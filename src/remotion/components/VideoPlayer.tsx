@@ -1,4 +1,5 @@
-import { OffthreadVideo, useVideoConfig } from "remotion";
+import { useVideoConfig } from "remotion";
+import { Video } from "@remotion/media";
 import { RenderInputProps } from "../types";
 
 interface VideoPlayerProps {
@@ -10,15 +11,15 @@ export function VideoPlayer({ props }: VideoPlayerProps) {
   const { songData, videoCdnPrefix } = props;
   const { song } = songData;
 
+  if (!song.videoUrl) return null;
+
   const videoSrc = `${videoCdnPrefix}${song.videoUrl}`;
 
-  // Play the range [clipStartSeconds, clipStartSeconds + clipDurationSeconds)
-  // of the source file, in frames.
   const trimBefore = Math.max(0, Math.round((song.clipStartSeconds || 0) * fps));
   const trimAfter = Math.round((song.clipStartSeconds + song.clipDurationSeconds) * fps);
 
   return (
-    <OffthreadVideo
+    <Video
       src={videoSrc}
       trimBefore={trimBefore}
       trimAfter={trimAfter}

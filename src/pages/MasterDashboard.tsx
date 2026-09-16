@@ -1,8 +1,10 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { SignedIn, SignIn, UserButton, useAuth } from '@clerk/clerk-react';
-import type { PartyRank, Participant, SongResult, Song } from '../types';
+import type { PartyRank, Participant, SongResult } from '../types';
+import { renderSongClient } from '../remotion/renderClient';
+import type { SongData } from '../remotion/types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -273,6 +275,15 @@ const ProgressTab = ({
 
 // ─── TAB: Results ─────────────────────────────────────────────────────────────
 
+type RenderSongState = {
+  annSongId: number;
+  title: string;
+  status: 'pending' | 'rendering' | 'done' | 'failed';
+  progress: number;
+  blobUrl?: string;
+  error?: string;
+};
+
 const ResultsTab = ({
   data,
   slug,
@@ -288,9 +299,11 @@ const ResultsTab = ({
   const [search, setSearch]   = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg]         = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [showRenderModal, setShowRenderModal] = useState(false);
-  const [renderProgress, setRenderProgress] = useState<{ done: number; total: number; items: any[] } | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [renderState, setRenderState] = useState<{
+    active: boolean;
+    phase: 'idle' | 'fetching' | 'rendering' | 'done';
+    songs: RenderSongState[];
+  }>({ active: false, phase: 'idle', songs: [] });
 
   const maxAvg = useMemo(() => Math.max(...results.map(r => r.avg_score ?? 0), 1), [results]);
 
@@ -318,111 +331,148 @@ const ResultsTab = ({
       const d = (await res.json()) as any;
       if (!res.ok) throw new Error(d.error);
       setMsg({ type: 'success', text: 'Success!' });
-      
-      // If reveal action, open render progress modal and start polling
-      if (action === 'reveal') {
-        setShowRenderModal(true);
-        startRenderPolling();
-      }
-      
       mutate();
     } catch (e: any) {
       setMsg({ type: 'error', text: e.message });
     } finally { setLoading(false); }
   };
 
-  const startRenderPolling = () => {
-    stopRenderPolling();
-    pollRef.current = setInterval(async () => {
-      try {
-        const token = await getToken();
-        const res = await fetch(`/api/party-rank/${slug}/render-progress`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = (await res.json()) as { done: number; total: number; items: any[] };
-          setRenderProgress(data);
-          if (data.done >= data.total && data.total > 0) {
-            stopRenderPolling();
-          }
-        }
-      } catch (e) {
-        console.error('Failed to fetch render progress:', e);
-      }
-    }, 3000);
-  };
-
-  const stopRenderPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
+  const handleRenderVideos = async () => {
+    if (renderState.songs.length > 0 && renderState.phase !== 'done' && renderState.phase !== 'idle') {
+      if (!confirm('Rendering in progress. Cancel and restart?')) return;
     }
-  };
 
-  const handleDownload = async (annSongId: number) => {
+    setRenderState({ active: true, phase: 'fetching', songs: [] });
     try {
       const token = await getToken();
-      const res = await fetch(`/api/party-rank/${slug}/render-download/${annSongId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await fetch(`/api/party-rank/${slug}/render-data`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const data = (await res.json()) as { downloadUrl?: string };
-        if (data.downloadUrl) {
-          window.open(data.downloadUrl, '_blank');
+      if (!res.ok) throw new Error('Failed to fetch render data');
+      const body = await res.json() as { videoCdnPrefix: string; songs: SongData[] };
+
+      if (!body.songs || body.songs.length === 0) {
+        throw new Error('No songs with votes available for rendering');
+      }
+
+      const songStates: RenderSongState[] = body.songs.map(s => ({
+        annSongId: s.song.annSongId,
+        title: s.song.songTitle,
+        status: 'pending' as const,
+        progress: 0,
+      }));
+      setRenderState({ active: true, phase: 'rendering', songs: songStates });
+
+      const proxyPrefix = `/api/party-rank/${slug}/video-proxy?url=`;
+      for (let i = 0; i < body.songs.length; i++) {
+        const songData = body.songs[i];
+        setRenderState(prev => ({
+          ...prev,
+          songs: prev.songs.map((s, idx) => idx === i ? { ...s, status: 'rendering' } : s),
+        }));
+
+        try {
+          const blob = await renderSongClient(songData, proxyPrefix, (p) => {
+            setRenderState(prev => ({
+              ...prev,
+              songs: prev.songs.map((s, idx) => idx === i ? { ...s, progress: p.progress } : s),
+            }));
+          });
+          const blobUrl = URL.createObjectURL(blob);
+          setRenderState(prev => ({
+            ...prev,
+            songs: prev.songs.map((s, idx) => idx === i ? { ...s, status: 'done', progress: 1, blobUrl } : s),
+          }));
+        } catch (err: any) {
+          console.error(`[render] Song ${songData.song.annSongId} failed:`, err);
+          setRenderState(prev => ({
+            ...prev,
+            songs: prev.songs.map((s, idx) => idx === i ? { ...s, status: 'failed', error: err.message || 'Render failed' } : s),
+          }));
         }
       }
-    } catch (e) {
-      console.error('Failed to get download URL:', e);
+      setRenderState(prev => ({ ...prev, phase: 'done' }));
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.message });
+      setRenderState({ active: false, phase: 'idle', songs: [] });
     }
   };
 
-  useEffect(() => {
-    return () => stopRenderPolling();
-  }, []);
+  const doneCount = renderState.songs.filter(s => s.status === 'done').length;
+  const totalCount = renderState.songs.length;
 
-  const RenderProgressModal = () => {
-    if (!showRenderModal || !renderProgress) return null;
+  const RenderModal = () => {
+    if (!renderState.active || renderState.phase === 'idle') return null;
     return (
-      <div className="modal-overlay" onClick={() => setShowRenderModal(false)}>
-        <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal-overlay" onClick={() => {
+        if (renderState.phase === 'done') setRenderState({ active: false, phase: 'idle', songs: [] });
+      }}>
+        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
           <div className="modal-header">
-            <h3>Rendering Videos</h3>
-            <button className="modal-close" onClick={() => setShowRenderModal(false)}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            <h3>
+              {renderState.phase === 'fetching' && 'Preparing render...'}
+              {renderState.phase === 'rendering' && `Rendering Videos (${doneCount}/${totalCount})`}
+              {renderState.phase === 'done' && `Render Complete (${doneCount}/${totalCount})`}
+            </h3>
+            {renderState.phase === 'done' && (
+              <button className="modal-close" onClick={() => setRenderState({ active: false, phase: 'idle', songs: [] })}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
           </div>
-          <div className="modal-body">
-            <div className="render-progress-header">
-              <span className="render-progress-text">{renderProgress.done} / {renderProgress.total} videos rendered</span>
-              <div className="render-progress-bar-track">
-                <div className="render-progress-bar-fill" style={{ width: `${renderProgress.total > 0 ? (renderProgress.done / renderProgress.total) * 100 : 0}%` }} />
-              </div>
-            </div>
-            <div className="render-items">
-              {renderProgress.items.map((item: any) => (
-                <div key={item.annSongId} className="render-item">
-                  <span className="render-item-song">Song #{item.annSongId}</span>
-                  <span className={`render-item-status ${item.status}`}>
-                    {item.status === 'done' && (
-                      <button className="btn btn-sm" onClick={() => handleDownload(item.annSongId)}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        Download
-                      </button>
-                    )}
-                    {item.status === 'rendering' && <span className="spinner-small" />}
-                    {item.status === 'pending' && 'Waiting...'}
-                    {item.status === 'failed' && (
-                      <span style={{ color: 'var(--red)' }}>Failed: {item.error}</span>
-                    )}
-                  </span>
+          <div className="modal-body" style={{ maxHeight: 400, overflowY: 'auto' }}>
+            {renderState.phase === 'fetching' && (
+              <div style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>Loading render data...</div>
+            )}
+            {renderState.songs.map((s) => (
+              <div key={s.annSongId} className="render-item" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</div>
+                  {s.status === 'rendering' && (
+                    <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round(s.progress * 100)}%`, background: 'var(--accent)', borderRadius: 2, transition: 'width 0.3s' }} />
+                    </div>
+                  )}
+                  {s.status === 'failed' && (
+                    <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2 }}>{s.error}</div>
+                  )}
                 </div>
-              ))}
-            </div>
+                <div style={{ flexShrink: 0 }}>
+                  {s.status === 'pending' && <span style={{ color: 'var(--muted)', fontSize: 12 }}>Waiting...</span>}
+                  {s.status === 'rendering' && <span className="spinner-small" />}
+                  {s.status === 'done' && s.blobUrl && (
+                    <a href={s.blobUrl} download={`song-${s.annSongId}.mp4`} className="btn btn-sm btn-primary" style={{ textDecoration: 'none' }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                      Download
+                    </a>
+                  )}
+                  {s.status === 'failed' && <span style={{ color: 'var(--red)', fontSize: 12 }}>Failed</span>}
+                </div>
+              </div>
+            ))}
+            {renderState.phase === 'rendering' && (
+              <div style={{ textAlign: 'center', padding: 12, fontSize: 12, color: 'var(--muted)' }}>
+                Rendering in browser... Keep this tab open.
+              </div>
+            )}
+            {renderState.phase === 'done' && (
+              <div style={{ textAlign: 'center', padding: 12, fontSize: 12, color: 'var(--green)' }}>
+                All done! Click Download to save videos.
+              </div>
+            )}
           </div>
           <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={() => setShowRenderModal(false)}>
-              Close
-            </button>
+            {renderState.phase === 'done' ? (
+              <button className="btn btn-secondary" onClick={() => setRenderState({ active: false, phase: 'idle', songs: [] })}>
+                Close
+              </button>
+            ) : renderState.phase === 'rendering' ? (
+              <button className="btn btn-danger" onClick={() => {
+                if (confirm('Cancel rendering?')) setRenderState({ active: false, phase: 'idle', songs: [] });
+              }}>
+                Cancel
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -446,7 +496,7 @@ const ResultsTab = ({
           </div>
           <div className="toolbar-spacer" />
 
-          {/* Action buttons based on status */}
+          {/* Status action buttons */}
           {partyRank.status === 'draft' && (
             <button className="btn btn-success" disabled={loading} onClick={() => handleAction('open')}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 3l14 9-14 9V3z"/></svg>
@@ -463,6 +513,18 @@ const ResultsTab = ({
             <button className="btn btn-primary" disabled={loading} onClick={() => handleAction('reveal')}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               Reveal Results
+            </button>
+          )}
+
+          {/* Render Videos — always visible when there are songs */}
+          {results.length > 0 && (
+            <button
+              className="btn"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #2563eb)', color: '#fff' }}
+              onClick={handleRenderVideos}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Render Videos
             </button>
           )}
 
@@ -498,9 +560,9 @@ const ResultsTab = ({
                   <td><span className="rank-num">#{r.final_rank}</span></td>
                   <td>
                     {r.video_url || r.audio_url ? (
-                      <a 
-                        href={`https://eudist.animemusicquiz.com/${r.video_url || r.audio_url || ''}`} 
-                        target="_blank" 
+                      <a
+                        href={`https://eudist.animemusicquiz.com/${r.video_url || r.audio_url || ''}`}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="song-title"
                       >
@@ -535,6 +597,8 @@ const ResultsTab = ({
           </table>
         </div>
       </div>
+
+      <RenderModal />
     </div>
   );
 };

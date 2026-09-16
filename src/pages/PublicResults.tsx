@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import useSWR from 'swr';
+import { useAuth } from '@clerk/clerk-react';
 import type { PartyRank, SongResult } from '../types';
 
 interface ResultsData {
@@ -21,6 +22,7 @@ const songTypeLabel = (t: 1 | 2 | 3) => (t === 1 ? 'OP' : t === 2 ? 'ED' : 'IN')
 export default function PublicResults() {
   const { slug } = useParams<{ slug: string }>();
   const [activeTab, setActiveTab] = useState<'summary' | 'breakdown'>('summary');
+  const { isLoaded: authLoaded, isSignedIn, getToken } = useAuth();
 
   const { data, error, isLoading } = useSWR(
     slug ? `/api/party-rank/${slug}/results` : null,
@@ -32,6 +34,20 @@ export default function PublicResults() {
       dedupingInterval: 600000, // 10 minutes
     }
   );
+
+  const canMasterFetcher = async (url: string) => {
+    const token = await getToken();
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return { canManage: false };
+    return res.json() as Promise<{ canManage: boolean }>;
+  };
+
+  const { data: canManageData } = useSWR(
+    authLoaded && isSignedIn && slug ? `/api/party-rank/${slug}/can-master` : null,
+    canMasterFetcher,
+    { revalidateOnFocus: false, revalidateIfStale: false, dedupingInterval: 60000 }
+  );
+  const canManage = canManageData?.canManage === true;
 
   const allVoters = useMemo(() => {
     if (!data?.breakdown) return [];
@@ -79,6 +95,12 @@ export default function PublicResults() {
                  partyRank.status === 'closed' ? 'Closed' : 'Draft'}
               </span>
             </div>
+            {canManage && (
+              <Link to={`/party-rank/${slug}/master`} className="btn btn-primary" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                Master Control
+              </Link>
+            )}
         </div>
 
         {partyRank.status !== 'revealed' || !summary ? (
