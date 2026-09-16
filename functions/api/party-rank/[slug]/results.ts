@@ -1,10 +1,13 @@
 import { Client } from "pg";
+import { resolveCurrentAvatars } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
 }
 
 interface EventContext {
@@ -128,12 +131,33 @@ async function handleGet(context: EventContext) {
       number,
       { discord_id: string; discord_username: string; discord_avatar: string | null; rank: number; score: number }[]
     > = {};
+
+    // Collect unique participant discord IDs for avatar refresh
+    const discordIds = Array.from(new Set(breakdownRes.rows.map((r) => r.discord_id)));
+    let freshAvatars = new Map<string, string>();
+    if (discordIds.length > 0 && env.CLERK_SECRET_KEY) {
+      freshAvatars = await resolveCurrentAvatars(
+        env.CLERK_SECRET_KEY,
+        env.CLERK_PUBLISHABLE_KEY,
+        discordIds
+      );
+      if (freshAvatars.size > 0) {
+        for (const [did, avatarUrl] of freshAvatars) {
+          // Persist freshness back so subsequent requests skip the Clerk lookup
+          await client.query(
+            `UPDATE participants SET discord_avatar = $1 WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            [avatarUrl, did, partyRank.id]
+          );
+        }
+      }
+    }
+
     for (const row of breakdownRes.rows) {
       if (!breakdown[row.ann_song_id]) breakdown[row.ann_song_id] = [];
       breakdown[row.ann_song_id].push({
         discord_id:       row.discord_id,
         discord_username: row.discord_username,
-        discord_avatar:   row.discord_avatar,
+        discord_avatar:   freshAvatars.get(row.discord_id) ?? row.discord_avatar,
         rank:             row.rank,
         score:            row.score,
       });

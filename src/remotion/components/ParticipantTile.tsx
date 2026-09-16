@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { interpolate, useCurrentFrame } from "remotion";
 import { useVideoConfig } from "remotion";
 import { ParticipantData } from "../types";
@@ -23,6 +24,7 @@ export function ParticipantTile({
   const { fps } = useVideoConfig();
   const frame = useCurrentFrame();
   const { displayName, score, isHighest, isLowest } = participant;
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   // Stagger: 0.2s–1.2s, ~30ms per tile
   const tileStartMs = 200 + index * 30;
@@ -76,10 +78,11 @@ export function ParticipantTile({
           boxShadow: isHighest || isLowest ? `0 0 12px ${scoreBorderColor}80` : "none",
         }}
       >
-        {participant.avatarUrl ? (
+        {participant.avatarUrl && !avatarFailed ? (
           <img
             src={participant.avatarUrl}
             alt={displayName}
+            onError={() => setAvatarFailed(true)}
             style={{
               width: "100%",
               height: "100%",

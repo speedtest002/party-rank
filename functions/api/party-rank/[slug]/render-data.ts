@@ -1,5 +1,5 @@
 import { Client } from "pg";
-import { resolveAuthUser } from "../../../lib/clerk";
+import { resolveAuthUser, resolveCurrentAvatars } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
@@ -181,6 +181,38 @@ async function handleGet(context: EventContext) {
     const totalSongs = songsRes.rows.length;
     const renderData: RenderDataSong[] = [];
 
+    // Collect unique participant discord IDs for avatar refresh
+    const discordIds: string[] = [];
+    for (const p of participantsRes.rows) {
+      if (p.discord_id && !discordIds.includes(p.discord_id)) {
+        discordIds.push(p.discord_id);
+      }
+    }
+
+    // Resolve current avatars from Clerk (best-effort) and persist back to DB
+    let freshAvatars = new Map<string, string>();
+    if (discordIds.length > 0 && env.CLERK_SECRET_KEY) {
+      freshAvatars = await resolveCurrentAvatars(
+        env.CLERK_SECRET_KEY,
+        env.CLERK_PUBLISHABLE_KEY,
+        discordIds
+      );
+      if (freshAvatars.size > 0) {
+        for (const [discordId, avatarUrl] of freshAvatars) {
+          // Update users table (global)
+          await client.query(
+            `UPDATE users SET discord_avatar = $1 WHERE discord_id = $2 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            [avatarUrl, discordId]
+          );
+          // Update participants table (per-PR) — this is where render-data reads from
+          await client.query(
+            `UPDATE participants SET discord_avatar = $1 WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            [avatarUrl, discordId, prId]
+          );
+        }
+      }
+    }
+
     for (const song of songsRes.rows) {
       const songScores = scoresBySong.get(song.ann_song_id) || [];
 
@@ -196,7 +228,7 @@ async function handleGet(context: EventContext) {
         return {
           discordId: p.discord_id,
           displayName: p.discord_username || `User_${p.discord_id.slice(-4)}`,
-          avatarUrl: p.discord_avatar || "", // will be replaced with cached URL by worker
+          avatarUrl: freshAvatars.get(p.discord_id) || p.discord_avatar || "",
           score: sc.score,
           personalRank: sc.rank,
           isHighest: sc.score === maxScore,
