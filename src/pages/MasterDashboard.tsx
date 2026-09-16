@@ -631,6 +631,7 @@ const SongsTab = ({
   );
 
   const isLocked = partyRank.status === 'closed' || partyRank.status === 'revealed';
+  const clipsEditable = true; // clip timing luôn chỉnh được ở mọi phase (draft/open/closed/revealed)
 
   const postAction = async (body: object) => {
     const token = await getToken();
@@ -816,7 +817,7 @@ const SongsTab = ({
                       style={{ width: '100%', padding: '4px 8px', fontSize: 12 }}
                       value={clipTiming[s.ann_song_id]?.clip_start_seconds ?? String(s.clip_start_seconds ?? 0)}
                       onChange={e => handleClipTimingChange(s.ann_song_id, 'clip_start_seconds', e.target.value)}
-                      disabled={isLocked}
+                      disabled={!clipsEditable}
                     />
                   </td>
                   <td>
@@ -828,7 +829,7 @@ const SongsTab = ({
                       style={{ width: '100%', padding: '4px 8px', fontSize: 12 }}
                       value={clipTiming[s.ann_song_id]?.clip_duration_seconds ?? String(s.clip_duration_seconds ?? 15)}
                       onChange={e => handleClipTimingChange(s.ann_song_id, 'clip_duration_seconds', e.target.value)}
-                      disabled={isLocked}
+                      disabled={!clipsEditable}
                     />
                   </td>
                   <td>
@@ -837,7 +838,7 @@ const SongsTab = ({
                         <button
                           className="btn btn-primary btn-sm"
                           onClick={() => handleSaveClipTiming(s.ann_song_id)}
-                          disabled={savingTiming === s.ann_song_id || isLocked}
+                          disabled={savingTiming === s.ann_song_id || !clipsEditable}
                           style={{ padding: '4px 8px', fontSize: 11 }}
                         >
                           {savingTiming === s.ann_song_id ? 'Saving...' : 'Save'}

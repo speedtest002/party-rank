@@ -88,11 +88,13 @@ async function handleGet(context: EventContext, client: Client) {
 
   // 4. Kết quả tổng hợp
   const resultsRes = await client.query(
-    `SELECT ann_song_id, pr_id, ann_id, anime, song_title, artist, song_type, position,
-            vote_count::int, avg_score::float, avg_rank::float, min_score::float, max_score::float, final_rank::int
-     FROM song_results
-     WHERE pr_id = $1
-     ORDER BY final_rank ASC, position ASC`,
+    `SELECT sr.ann_song_id, sr.pr_id, sr.ann_id, sr.anime, sr.song_title, sr.artist, sr.song_type, sr.position,
+            sr.vote_count::int, sr.avg_score::float, sr.avg_rank::float, sr.min_score::float, sr.max_score::float, sr.final_rank::int,
+            s.clip_start_seconds, s.clip_duration_seconds, s.video_url, s.audio_url
+     FROM song_results sr
+     JOIN songs s ON s.pr_id = sr.pr_id AND s.ann_song_id = sr.ann_song_id
+     WHERE sr.pr_id = $1
+     ORDER BY sr.final_rank ASC, sr.position ASC`,
     [partyRank.id]
   );
 
