@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { useSession, signIn } from '../lib/auth-client';
+import { SignedIn, SignedOut, SignIn, UserButton, useAuth } from '@clerk/clerk-react';
 import type { PartyRank, Participant, SongResult, Song } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -18,8 +18,9 @@ type TabId = 'progress' | 'results' | 'songs' | 'settings';
 
 // ─── Fetcher ──────────────────────────────────────────────────────────────────
 
-const fetcher = async (url: string) => {
-  const res = await fetch(url);
+const fetcher = async (url: string, getToken: () => Promise<string | null>) => {
+  const token = await getToken();
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const data = (await res.json()) as any;
   if (!res.ok) throw new Error(data.error || 'Fetch failed');
   return data as MasterData;
@@ -135,10 +136,12 @@ const Sidebar = ({
 const ProgressTab = ({
   data,
   slug,
+  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
+  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { progress, participants } = data;
@@ -151,9 +154,10 @@ const ProgressTab = ({
   );
 
   const postAction = async (body: object) => {
+    const token = await getToken();
     const res = await fetch(`/api/party-rank/${slug}/master`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     });
     const d = (await res.json()) as any;
@@ -269,24 +273,15 @@ const ProgressTab = ({
 
 // ─── TAB: Results ─────────────────────────────────────────────────────────────
 
-interface RenderProgressResponse {
-  done: number;
-  total: number;
-  items: {
-    annSongId: number;
-    status: 'pending' | 'rendering' | 'done' | 'failed';
-    videoPath: string | null;
-    error: string | null;
-  }[];
-}
-
 const ResultsTab = ({
   data,
   slug,
+  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
+  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { results, partyRank, progress } = data;
@@ -294,7 +289,7 @@ const ResultsTab = ({
   const [loading, setLoading] = useState(false);
   const [msg, setMsg]         = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showRenderModal, setShowRenderModal] = useState(false);
-  const [renderProgress, setRenderProgress] = useState<RenderProgressResponse | null>(null);
+  const [renderProgress, setRenderProgress] = useState<{ done: number; total: number; items: any[] } | null>(null);
   const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
 
   const maxAvg = useMemo(() => Math.max(...results.map(r => r.avg_score ?? 0), 1), [results]);
@@ -314,9 +309,10 @@ const ResultsTab = ({
     if (!confirm(`Confirm: ${labels[action]}?`)) return;
     setLoading(true);
     try {
+      const token = await getToken();
       const res = await fetch(`/api/party-rank/${slug}/master`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action }),
       });
       const d = (await res.json()) as any;
@@ -338,9 +334,12 @@ const ResultsTab = ({
   const startRenderPolling = () => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/party-rank/${slug}/render-progress`);
+        const token = await getToken();
+        const res = await fetch(`/api/party-rank/${slug}/render-progress`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (res.ok) {
-          const data: RenderProgressResponse = await res.json();
+          const data = await res.json();
           setRenderProgress(data);
           if (data.done >= data.total && data.total > 0) {
             stopRenderPolling();
@@ -360,8 +359,21 @@ const ResultsTab = ({
     }
   };
 
-  const handleDownload = (annSongId: number) => {
-    window.open(`/api/party-rank/${slug}/render-download/${annSongId}`, '_blank');
+  const handleDownload = async (annSongId: number) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/party-rank/${slug}/render-download/${annSongId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.downloadUrl) {
+          window.open(data.downloadUrl, '_blank');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to get download URL:', e);
+    }
   };
 
   useEffect(() => {
@@ -523,8 +535,6 @@ const ResultsTab = ({
           </table>
         </div>
       </div>
-
-      <RenderProgressModal />
     </div>
   );
 };
@@ -534,10 +544,12 @@ const ResultsTab = ({
 const SongsTab = ({
   data,
   slug,
+  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
+  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { results: songs, partyRank } = data;
@@ -557,20 +569,10 @@ const SongsTab = ({
   const isLocked = partyRank.status === 'closed' || partyRank.status === 'revealed';
 
   const postAction = async (body: object) => {
+    const token = await getToken();
     const res = await fetch(`/api/party-rank/${slug}/master`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const d = (await res.json()) as any;
-    if (!res.ok) throw new Error(d.error || 'Server error');
-    return d;
-  };
-
-  const patchAction = async (body: object) => {
-    const res = await fetch(`/api/party-rank/${slug}/master`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
     });
     const d = (await res.json()) as any;
@@ -611,6 +613,18 @@ const SongsTab = ({
     } catch (e: any) {
       setMsg({ type: 'error', text: e.message });
     } finally { setRemoving(null); }
+  };
+
+  const patchAction = async (body: object) => {
+    const token = await getToken();
+    const res = await fetch(`/api/party-rank/${slug}/master`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const d = (await res.json()) as any;
+    if (!res.ok) throw new Error(d.error || 'Server error');
+    return d;
   };
 
   const handleClipTimingChange = (annSongId: number, field: 'clip_start_seconds' | 'clip_duration_seconds', value: string) => {
@@ -789,10 +803,12 @@ const SongsTab = ({
 const SettingsTab = ({
   data,
   slug,
+  getToken,
   mutate,
 }: {
   data: MasterData;
   slug: string;
+  getToken: () => Promise<string | null>;
   mutate: () => void;
 }) => {
   const { partyRank } = data;
@@ -817,23 +833,24 @@ const SettingsTab = ({
   const handleSave = async () => {
     setSaving(true);
     setMsg(null);
-    const payload: Record<string, unknown> = {
-      name:          form.name,
-      description:   form.description || null,
-      spotify_url:   form.spotify_url || null,
-      youtube_url:   form.youtube_url || null,
-      starts_at:     form.starts_at || null,
-      deadline:      form.deadline || null,
-      score_min:     parseFloat(form.score_min),
-      score_max:     parseFloat(form.score_max),
-      allow_resubmit: form.allow_resubmit,
-      discord_guild_id: form.discord_guild_id || null,
-      discord_thread_id: form.discord_thread_id || null,
-    };
     try {
+      const token = await getToken();
+      const payload: Record<string, unknown> = {
+        name:          form.name,
+        description:   form.description || null,
+        spotify_url:   form.spotify_url || null,
+        youtube_url:   form.youtube_url || null,
+        starts_at:     form.starts_at || null,
+        deadline:      form.deadline || null,
+        score_min:     parseFloat(form.score_min),
+        score_max:     parseFloat(form.score_max),
+        allow_resubmit: form.allow_resubmit,
+        discord_guild_id: form.discord_guild_id || null,
+        discord_thread_id: form.discord_thread_id || null,
+      };
       const res = await fetch(`/api/party-rank/${slug}/master`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'update', data: payload }),
       });
       const d = (await res.json()) as any;
@@ -950,12 +967,12 @@ const StatCard = ({
 export default function MasterDashboard() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { data: session, isPending } = useSession();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('progress');
 
   const { data, error, isLoading, mutate } = useSWR(
-    !isPending && session && slug ? `/api/party-rank/${slug}/master` : null,
-    fetcher,
+    isLoaded && isSignedIn && slug ? `/api/party-rank/${slug}/master` : null,
+    (url: string) => fetcher(url, getToken),
     { 
       refreshInterval: 60000, 
       revalidateOnFocus: false, 
@@ -966,22 +983,21 @@ export default function MasterDashboard() {
   );
 
   // ── Auth guards ──────────────────────────────────────────────────────────────
-  if (isPending) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>Loading...</div>;
-  if (!session) {
+
+  if (!isLoaded) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)' }}>
+        <div style={{ color: 'var(--muted)' }}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg)', padding: 24 }}>
         <div className="panel" style={{ maxWidth: 400, width: '100%', padding: 40, textAlign: 'center' }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Master Login</h1>
-          <button 
-            onClick={() => signIn.social({ provider: 'discord' })} 
-            className="btn btn-discord" 
-            style={{ width: '100%', padding: '12px', justifyContent: 'center' }}
-          >
-            <svg width="20" height="16" viewBox="0 0 24 24" fill="currentColor" style={{ marginRight: '8px' }}>
-              <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.125-.094.249-.192.37-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.06.06 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.419-2.157 2.419zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.419-2.157 2.419z"/>
-            </svg>
-            Login with Discord
-          </button>
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Login to Continue</h1>
+          <SignIn routing="hash" fallbackRedirectUrl={window.location.pathname} />
         </div>
       </div>
     );
@@ -1020,46 +1036,70 @@ export default function MasterDashboard() {
 
   return (
     <>
-      <div className="container animate-fadeIn" style={{ paddingTop: 24, paddingBottom: 60 }}>
-        {/* Sub-header for Master Dashboard with Tabs */}
-        <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div className="top-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontWeight: 700, fontSize: 18 }}>{partyRank.name}</span>
-            <span className={`badge badge-${partyRank.status}`} style={{ textTransform: 'capitalize' }}>
-              {partyRank.status === 'draft'    ? 'Draft'
-               : partyRank.status === 'open'   ? 'Open'
-               : partyRank.status === 'closed' ? 'Closed'
-               : 'Revealed'}
-            </span>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => mutate()} title="Refresh">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-          </button>
-        </div>
-
-        <nav className="tab-nav" style={{ marginBottom: 24 }}>
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              className={`tab-btn${activeTab === t.id ? ' active' : ''}`}
-              onClick={() => setActiveTab(t.id)}
+      <header className="top-header">
+        <div className="top-header-inner">
+          <div className="top-header-row1" style={{ height: 60, display: 'flex', alignItems: 'center', padding: '0 24px' }}>
+            <button 
+              onClick={() => navigate('/party-rank')}
+              className="btn btn-secondary"
+              style={{ padding: '6px 12px', fontSize: 13, marginRight: 16 }}
             >
-              {t.label}
+              ← All Events
             </button>
-          ))}
-        </nav>
+            <div className="top-header-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontWeight: 700, fontSize: 18 }}>{partyRank.name}</span>
+              <span className={`badge badge-${partyRank.status}`} style={{ textTransform: 'capitalize' }}>
+                {partyRank.status === 'draft'    ? 'Draft'
+                 : partyRank.status === 'open'   ? 'Open'
+                 : partyRank.status === 'closed' ? 'Closed'
+                 : 'Revealed'}
+              </span>
+            </div>
+            <div className="top-header-actions" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => mutate()} title="Refresh">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+              </button>
+              <SignedIn>
+                <UserButton />
+              </SignedIn>
+            </div>
+          </div>
 
+          {/* Tab nav */}
+          <nav className="tab-nav">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                className={`tab-btn${activeTab === t.id ? ' active' : ''}`}
+                onClick={() => setActiveTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      <div className="container animate-fadeIn" style={{ paddingTop: 24, paddingBottom: 60 }}>
         <div className="main-grid">
           {/* Sidebar */}
           <Sidebar progress={data.progress} participants={data.participants} />
 
           {/* Content area */}
-          <div className="dashboard-content">
-            {activeTab === 'progress' && <ProgressTab data={data} slug={slug!} mutate={mutate} />}
-            {activeTab === 'results'  && <ResultsTab  data={data} slug={slug!} mutate={mutate} />}
-            {activeTab === 'songs'    && <SongsTab    data={data} slug={slug!} mutate={mutate} />}
-            {activeTab === 'settings' && <SettingsTab data={data} slug={slug!} mutate={mutate} />}
-          </div>
+          <main>
+            {activeTab === 'progress' && (
+              <ProgressTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
+            )}
+            {activeTab === 'results' && (
+              <ResultsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
+            )}
+            {activeTab === 'songs' && (
+              <SongsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
+            )}
+            {activeTab === 'settings' && (
+              <SettingsTab data={data} slug={slug!} getToken={getToken} mutate={mutate} />
+            )}
+          </main>
         </div>
       </div>
     </>

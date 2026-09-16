@@ -1,14 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { useSession, signIn, signOut } from '../lib/auth-client';
+import { useAuth, useUser, useClerk } from '@clerk/clerk-react';
 
 const Header = () => {
-  const { data: session, isPending } = useSession();
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const { user } = useUser();
+  const clerk = useClerk();
 
-  const handleLogin = async () => {
-    await signIn.social({
-      provider: "discord",
-    });
+  const handleLogin = () => {
+    clerk.openSignIn({ strategy: 'oauth_discord' });
   };
 
   return (
@@ -27,19 +27,19 @@ const Header = () => {
         </Link>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {isPending ? (
+          {!isLoaded ? (
             <span style={{ fontSize: 13, color: 'var(--muted)' }}>Loading...</span>
-          ) : session ? (
+          ) : isSignedIn ? (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {session?.user?.image && (
+                {user?.imageUrl && (
                   <img 
-                    src={session.user.image} 
+                    src={user.imageUrl} 
                     alt="avatar" 
                     style={{ width: 32, height: 32, borderRadius: '50%' }} 
                   />
                 )}
-                <span style={{ fontSize: 14, fontWeight: 500 }}>{session?.user?.name || 'User'}</span>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>{user?.fullName || 'User'}</span>
               </div>
               <button 
                 onClick={() => signOut()} 

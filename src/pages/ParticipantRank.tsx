@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { useSession, signIn, signOut } from '../lib/auth-client';
+import { useAuth, useUser, useClerk } from '@clerk/clerk-react';
 import {
   DndContext,
   closestCenter,
@@ -190,7 +190,11 @@ const SortableItem = ({
 
 export default function ParticipantRank() {
   const { slug } = useParams<{ slug: string }>();
-  const { data: session, isPending } = useSession();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
+  const clerk = useClerk();
+  const isPending = !isLoaded;
+  const session = isSignedIn ? { user: { name: user.fullName || 'User', image: user.imageUrl } } : null;
 
   const { data, error, isLoading, mutate } = useSWR(
     !isPending && session && slug ? `/api/party-rank/${slug}/vote` : null,
@@ -297,7 +301,7 @@ export default function ParticipantRank() {
         <div className="panel" style={{ maxWidth: 400, width: '100%', padding: 40, textAlign: 'center' }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Login to Vote</h1>
           <button 
-            onClick={() => signIn.social({ provider: 'discord' })} 
+            onClick={() => clerk.openSignIn({ strategy: 'oauth_discord' })} 
             className="btn btn-discord" 
             style={{ width: '100%', padding: '12px', justifyContent: 'center' }}
           >
