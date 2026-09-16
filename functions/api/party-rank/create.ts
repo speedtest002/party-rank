@@ -98,12 +98,12 @@ export const onRequest = async (context: EventContext) => {
     await client.connect();
 
     try {
-      // 1. Ensure owner exists in 'user' table (FIX for FK Violation)
+      // 1. Ensure owner exists in 'users' table (FIX for FK Violation)
       await client.query(
-        `INSERT INTO "user" (discord_id, "createdAt", "updatedAt")
-         VALUES ($1, NOW(), NOW())
+        `INSERT INTO users (discord_id, last_login_at)
+         VALUES ($1, NOW())
          ON CONFLICT (discord_id) DO UPDATE SET
-           "updatedAt" = EXCLUDED."updatedAt"`,
+           last_login_at = EXCLUDED.last_login_at`,
         [finalOwnerId]
       );
 

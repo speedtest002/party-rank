@@ -252,14 +252,13 @@ async function handlePost(context: EventContext, client: Client) {
       if (parseInt(countRes.rows[0].count) >= max_participants) return json({ error: "Đã đạt giới hạn người tham gia." }, 400);
     }
 
-    // Ensure user exists in 'user' table to avoid FK issues later
+    // Ensure user exists in 'users' table to avoid FK issues later
     await client.query(
-      `INSERT INTO "user" (id, discord_id, "name", image, "createdAt", "updatedAt")
-       VALUES (gen_random_uuid()::text, $1, $2, $3, NOW(), NOW())
+      `INSERT INTO users (discord_id, discord_username, discord_avatar)
+       VALUES ($1, $2, $3)
        ON CONFLICT (discord_id) DO UPDATE SET
-         "name" = COALESCE(EXCLUDED."name", "user"."name"),
-         image   = COALESCE(EXCLUDED.image, "user".image),
-         "updatedAt" = NOW()`,
+         discord_username = COALESCE(EXCLUDED.discord_username, users.discord_username),
+         discord_avatar   = COALESCE(EXCLUDED.discord_avatar, users.discord_avatar)`,
       [discord_id, discord_username ?? null, discord_avatar ?? null]
     );
 
@@ -359,7 +358,7 @@ export const onRequest = async (context: EventContext) => {
   await client.connect();
   try {
     const checkRes = await client.query(
-      `SELECT pr.created_by_discord_id, u.role FROM party_ranks pr LEFT JOIN "user" u ON u.discord_id = $2 WHERE pr.slug = $1`,
+      `SELECT pr.created_by_discord_id, u.role FROM party_ranks pr LEFT JOIN users u ON u.discord_id = $2 WHERE pr.slug = $1`,
       [prSlug, userDiscordId]
     );
 
