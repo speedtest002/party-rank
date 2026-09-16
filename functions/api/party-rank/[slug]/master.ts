@@ -8,7 +8,6 @@ import { enqueueVideoRender, VideoRenderJob } from "../../../lib/queue";
 interface Env {
   DB:         { connectionString: string };  // partyrank DB
   ANISONG_DB: { connectionString: string };  // anisongdb (read-only)
-  BETTER_AUTH_SECRET: string;
   APP_URL: string;
   CLERK_SECRET_KEY?: string;
   CLERK_PUBLISHABLE_KEY?: string;

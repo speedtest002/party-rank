@@ -1,13 +1,14 @@
 import { Client } from "pg";
-import { getAuth } from "../../../lib/auth";
+import { resolveAuthUser } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
-  BETTER_AUTH_SECRET: string;
-  APP_URL: string;
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
+  BOT_SECRET?: string;
 }
 
 interface ScoreInput {
@@ -35,23 +36,14 @@ const getClient = (env: Env) =>
   new Client({ connectionString: env.DB.connectionString });
 
 // ---------------------------------------------------------------
-// Auth: Verify Better Auth session -> resolve Discord ID
-// Returns discord_id string or null if invalid/not linked
-// ----------------------------------------------------------------
+// Auth: Verify Clerk session (or BOT_SECRET) -> resolve Discord ID
+// ---------------------------------------------------------------
 async function resolveDiscordId(
   request: Request,
   env: Env
 ): Promise<string | null> {
   try {
-    const auth = getAuth(env);
-    const sessionRes = await auth.api.getSession({
-        headers: request.headers
-    });
-    
-    if (!sessionRes || !sessionRes.user) return null;
-    
-    const user = sessionRes.user;
-    return (user as any).discord_id || null;
+    return await resolveAuthUser(request, env);
   } catch (err) {
     console.error("Auth error:", err);
     return null;

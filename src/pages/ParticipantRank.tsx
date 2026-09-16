@@ -36,17 +36,22 @@ interface AppData {
   previousScores: Record<number, { rank: number; score: number }>;
 }
 
-const fetcher = async (url: string) => {
-  const res = await fetch(url);
-  const data = (await res.json()) as any;
-  if (!res.ok) {
-    const error = new Error(data.error || 'Fetch failed') as any;
-    error.code = data.code;
-    error.discord_guild_id = data.discord_guild_id;
-    error.discord_thread_id = data.discord_thread_id;
-    throw error;
-  }
-  return data as AppData;
+const createFetcher = (getToken: () => Promise<string | null>) => {
+  return async (url: string) => {
+    const token = await getToken();
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json()) as any;
+    if (!res.ok) {
+      const error = new Error(data.error || 'Fetch failed') as any;
+      error.code = data.code;
+      error.discord_guild_id = data.discord_guild_id;
+      error.discord_thread_id = data.discord_thread_id;
+      throw error;
+    }
+    return data as AppData;
+  };
 };
 
 // ─── Sortable Item ─────────────────────────────────────────────────────────────
@@ -195,6 +200,7 @@ export default function ParticipantRank() {
   const { signIn } = useSignIn();
   const isPending = !isLoaded;
   const session = isSignedIn ? { user: { name: user?.fullName || 'User', image: user?.imageUrl } } : null;
+  const fetcher = createFetcher(getToken);
 
   const { data, error, isLoading, mutate } = useSWR(
     !isPending && session && slug ? `/api/party-rank/${slug}/vote` : null,
@@ -276,10 +282,12 @@ export default function ParticipantRank() {
 
     try {
       setSubmitting(true);
+      const token = await getToken();
       const res = await fetch(`/api/party-rank/${slug}/vote`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ scores: payload }),
       });

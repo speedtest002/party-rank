@@ -1,11 +1,12 @@
 import { Client } from "pg";
-import { getAuth } from "../../lib/auth";
+import { resolveAuthUser } from "../../lib/clerk";
 
 interface Env {
   DB: { connectionString: string };
-  BETTER_AUTH_SECRET: string;
   APP_URL: string;
   BOT_SECRET?: string; // Secret for Discord bot auth
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
 }
 
 interface AuthResult {
@@ -35,25 +36,16 @@ const getClient = (env: Env) =>
 async function authUser(request: Request, env: Env): Promise<AuthResult> {
   const header = request.headers.get("Authorization") ?? "";
   const [scheme, token] = header.split(" ");
-  
+
   // 1. Check Bot Secret first (if configured)
   if (scheme === "Bearer" && env.BOT_SECRET && token === env.BOT_SECRET) {
     return { discord_id: "BOT", is_bot: true };
   }
 
-  // 2. Better Auth Session
-  try {
-    const auth = getAuth(env);
-    const sessionRes = await auth.api.getSession({
-        headers: request.headers
-    });
-    
-    if (!sessionRes || !sessionRes.user) return { discord_id: null, is_bot: false };
-    
-    return { discord_id: (sessionRes.user as any).discord_id || null, is_bot: false };
-  } catch {
-    return { discord_id: null, is_bot: false };
-  }
+  // 2. Clerk session -> resolved Discord ID (or Clerk user id)
+  const discordId = await resolveAuthUser(request, env);
+  if (!discordId) return { discord_id: null, is_bot: false };
+  return { discord_id: discordId, is_bot: discordId === "BOT" };
 }
 
 export const onRequest = async (context: EventContext) => {
