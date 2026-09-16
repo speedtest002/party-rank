@@ -141,7 +141,7 @@ CREATE TABLE songs (
 
   -- Clip timing for video render (set by host on master page)
   clip_start_seconds     NUMERIC(6,2) NOT NULL DEFAULT 0,
-  clip_duration_seconds  NUMERIC(6,2) NOT NULL DEFAULT 8,
+  clip_duration_seconds  NUMERIC(6,2) NOT NULL DEFAULT 15,
 
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

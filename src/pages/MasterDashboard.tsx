@@ -708,7 +708,7 @@ const SongsTab = ({
         data: {
           ann_song_id: annSongId,
           clip_start_seconds: parseFloat(timing.clip_start_seconds) || 0,
-          clip_duration_seconds: parseFloat(timing.clip_duration_seconds) || 8,
+          clip_duration_seconds: parseFloat(timing.clip_duration_seconds) || 15,
         },
       });
       setMsg({ type: 'success', text: 'Clip timing saved.' });
@@ -826,7 +826,7 @@ const SongsTab = ({
                       min="0.1"
                       className="input"
                       style={{ width: '100%', padding: '4px 8px', fontSize: 12 }}
-                      value={clipTiming[s.ann_song_id]?.clip_duration_seconds ?? String(s.clip_duration_seconds ?? 8)}
+                      value={clipTiming[s.ann_song_id]?.clip_duration_seconds ?? String(s.clip_duration_seconds ?? 15)}
                       onChange={e => handleClipTimingChange(s.ann_song_id, 'clip_duration_seconds', e.target.value)}
                       disabled={isLocked}
                     />
