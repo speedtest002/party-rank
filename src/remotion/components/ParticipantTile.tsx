@@ -82,6 +82,7 @@ export function ParticipantTile({
           <img
             src={participant.avatarUrl}
             alt={displayName}
+            crossOrigin="anonymous"
             onError={() => setAvatarFailed(true)}
             style={{
               width: "100%",
