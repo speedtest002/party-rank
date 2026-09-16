@@ -1,5 +1,5 @@
 import { Client } from "pg";
-import { getAuth } from "../../../lib/auth";
+import { resolveAuthUser } from "../../../lib/clerk";
 import { enqueueVideoRender, VideoRenderJob } from "../../../lib/queue";
 
 // ----------------------------------------------------------------
@@ -10,6 +10,9 @@ interface Env {
   ANISONG_DB: { connectionString: string };  // anisongdb (read-only)
   BETTER_AUTH_SECRET: string;
   APP_URL: string;
+  CLERK_SECRET_KEY?: string;
+  CLERK_PUBLISHABLE_KEY?: string;
+  WORKER_SECRET?: string;
   BOT_SECRET?: string;
 }
 
@@ -35,38 +38,11 @@ const getAnisongClient = (env: Env) =>
   new Client({ connectionString: env.ANISONG_DB.connectionString });
 
 /**
- * Verify Better Auth session or BOT_SECRET and sync user to database.
+ * Verify Clerk session or BOT_SECRET and resolve the Discord ID.
  * Returns Discord ID if valid, null otherwise.
  */
 const authMaster = async (request: Request, env: Env): Promise<string | null> => {
-  const header = request.headers.get("Authorization") ?? "";
-  const [scheme, token] = header.split(" ");
-
-  // 1. Check Bot Secret first
-  if (scheme === "Bearer" && env.BOT_SECRET && token === env.BOT_SECRET) {
-    return "BOT";
-  }
-
-  // 2. Better Auth Session
-  try {
-    const auth = getAuth(env);
-    const sessionRes = await auth.api.getSession({
-        headers: request.headers
-    });
-    
-    if (!sessionRes || !sessionRes.user) return null;
-    
-    const user = sessionRes.user;
-    // Better Auth 'user' table already has discord_id if we map it, 
-    // or we can use the internal id. 
-    // Looking at the schema, we use discord_id as a primary identifier in many places.
-    // In our migration, we Renamed 'users' to 'user' and kept 'discord_id'.
-    
-    return (user as any).discord_id || null;
-  } catch (err) {
-    console.error("Better Auth session check failed:", err);
-    return null;
-  }
+  return resolveAuthUser(request, env);
 };
 
 // ----------------------------------------------------------------
@@ -177,27 +153,38 @@ async function handlePatch(context: EventContext, client: Client) {
 
   if (action === "reveal") {
     if (currentStatus !== "closed") return json({ error: "Chỉ có thể reveal sau khi đã closed." }, 400);
-    await client.query(`UPDATE party_ranks SET status = 'revealed' WHERE id = $1`, [prId]);
 
-    // Insert render tracking rows for each song in this PR
-    const songsRes = await client.query(
-      `SELECT ann_song_id FROM songs WHERE pr_id = $1 ORDER BY position ASC`,
-      [prId]
-    );
-    const songIds = songsRes.rows.map((r) => r.ann_song_id);
+    let songIds: number[] = [];
+    await client.query("BEGIN");
+    try {
+      await client.query(`UPDATE party_ranks SET status = 'revealed' WHERE id = $1`, [prId]);
 
-    await client.query(
-      `INSERT INTO renders (pr_id, ann_song_id, status)
-       SELECT $1, ann_song_id, 'pending'
-       FROM songs
-       WHERE pr_id = $1
-       ON CONFLICT (pr_id, ann_song_id) DO NOTHING`,
-      [prId]
-    );
+      // Insert render tracking rows for each song in this PR
+      const songsRes = await client.query(
+        `SELECT ann_song_id FROM songs WHERE pr_id = $1 ORDER BY position ASC`,
+        [prId]
+      );
+      songIds = songsRes.rows.map((r) => r.ann_song_id);
+
+      await client.query(
+        `INSERT INTO renders (pr_id, ann_song_id, status)
+         SELECT $1, ann_song_id, 'pending'
+         FROM songs
+         WHERE pr_id = $1
+         ON CONFLICT (pr_id, ann_song_id) DO NOTHING`,
+        [prId]
+      );
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("[master] reveal transaction failed:", err);
+      return json({ error: "Reveal lỗi: không thể tạo render jobs." }, 500);
+    }
 
     // Enqueue render job via HTTP to render worker
     try {
-      await enqueueVideoRender(env, { prId, songIds } as VideoRenderJob);
+      await enqueueVideoRender(env, { prId, slug: pr, songIds } as VideoRenderJob);
     } catch (queueErr) {
       console.error("[master] Failed to enqueue render job:", queueErr);
       // Don't fail the reveal if queue fails - worker can be started manually
@@ -213,7 +200,7 @@ async function handlePatch(context: EventContext, client: Client) {
     const fields = Object.keys(data).filter((k) => allowed.includes(k));
     if (fields.length === 0) return json({ error: "Không có field hợp lệ." }, 400);
 
-    const clauses = fields.map((f, i) => `${f} = $${i + 2}`).join(", ");
+    const clauses = fields.map((f, i) => `${f} = $${i + 3}`).join(", ");
     try {
       await client.query(
         `UPDATE songs SET ${clauses} WHERE pr_id = $1 AND ann_song_id = $2`,

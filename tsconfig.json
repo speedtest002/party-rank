@@ -6,6 +6,7 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["@cloudflare/workers-types", "vite/client"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {

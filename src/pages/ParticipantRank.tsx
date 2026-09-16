@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { useAuth, useUser, useClerk } from '@clerk/clerk-react';
+import { useAuth, useUser, useSignIn } from '@clerk/clerk-react';
 import {
   DndContext,
   closestCenter,
@@ -192,9 +192,9 @@ export default function ParticipantRank() {
   const { slug } = useParams<{ slug: string }>();
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user } = useUser();
-  const clerk = useClerk();
+  const { signIn } = useSignIn();
   const isPending = !isLoaded;
-  const session = isSignedIn ? { user: { name: user.fullName || 'User', image: user.imageUrl } } : null;
+  const session = isSignedIn ? { user: { name: user?.fullName || 'User', image: user?.imageUrl } } : null;
 
   const { data, error, isLoading, mutate } = useSWR(
     !isPending && session && slug ? `/api/party-rank/${slug}/vote` : null,
@@ -301,7 +301,13 @@ export default function ParticipantRank() {
         <div className="panel" style={{ maxWidth: 400, width: '100%', padding: 40, textAlign: 'center' }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Login to Vote</h1>
           <button 
-            onClick={() => clerk.openSignIn({ strategy: 'oauth_discord' })} 
+            onClick={() =>
+              signIn?.authenticateWithRedirect({
+                strategy: 'oauth_discord',
+                redirectUrl: window.location.pathname,
+                redirectUrlComplete: window.location.pathname,
+              })
+            }
             className="btn btn-discord" 
             style={{ width: '100%', padding: '12px', justifyContent: 'center' }}
           >

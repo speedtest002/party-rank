@@ -1,5 +1,5 @@
 import { PgBoss, Job } from "pg-boss";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, selectComposition, makeCancelSignal } from "@remotion/renderer";
 import { bundle } from "@remotion/bundler";
 import * as path from "path";
 import * as fs from "fs";
@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 interface VideoRenderJob {
   prId: string;
+  slug: string;
   songIds: number[];
 }
 
@@ -35,9 +36,9 @@ async function updateRenderStatus(
   );
 }
 
-async function fetchRenderData(apiUrl: string, prId: string): Promise<any[]> {
-  const response = await fetch(`${apiUrl}/api/party-rank/${prId}/render-data`, {
-    headers: { Authorization: `Bearer ${process.env.BOT_SECRET}` },
+async function fetchRenderData(apiUrl: string, slug: string): Promise<any[]> {
+  const response = await fetch(`${apiUrl}/api/party-rank/${slug}/render-data`, {
+    headers: { Authorization: `Bearer ${process.env.BOT_SECRET || process.env.WORKER_SECRET || ""}` },
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch render data: ${response.statusText}`);
@@ -58,33 +59,36 @@ async function renderSingleSong(
 
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const bundlePath = await bundle(path.join(__dirname, "src/Root.tsx"));
+  const bundlePath = await bundle({ entryPoint: path.join(__dirname, "src/index.ts") });
   const composition = await selectComposition({
     serveUrl: bundlePath,
     id: compositionId,
     inputProps: { songData, videoCdnPrefix },
   });
 
-  // Render with timeout
-  await Promise.race([
-    renderMedia({
+  // Render with timeout so a stuck render doesn't block the queue forever
+  const { cancelSignal, cancel } = makeCancelSignal();
+  const timeout = setTimeout(() => cancel(), RENDER_TIMEOUT_MS);
+
+  try {
+    await renderMedia({
       composition,
       serveUrl: bundlePath,
       codec: "h264",
       outputLocation: outputPath,
       inputProps: { songData, videoCdnPrefix },
-    }),
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Render timeout")), RENDER_TIMEOUT_MS)
-    ),
-  ]);
+      cancelSignal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   return outputFileName;
 }
 
 async function processJob(job: Job<VideoRenderJob>) {
-  const { prId, songIds } = job.data;
-  console.log(`[worker] Processing job for PR ${prId}, songs: ${songIds.join(", ")}`);
+  const { prId, slug, songIds } = job.data;
+  console.log(`[worker] Processing job for PR ${prId} (${slug}), songs: ${songIds.join(", ")}`);
 
   const db = new Client({ connectionString: process.env.DATABASE_URL });
   await db.connect();
@@ -95,7 +99,7 @@ async function processJob(job: Job<VideoRenderJob>) {
 
   try {
     // Fetch render data for all songs
-    const renderDataArray = await fetchRenderData(apiUrl, prId);
+    const renderDataArray = await fetchRenderData(apiUrl, slug);
     const renderDataMap = new Map(renderDataArray.map((s: any) => [s.song.annSongId, s]));
 
     for (const annSongId of songIds) {
@@ -199,30 +203,44 @@ async function main() {
 
     // Download endpoint: /download/{prId}/{filename}
     if (req.method === "GET" && req.url?.startsWith("/download/")) {
-      const parts = req.url.split("/");
-      // /download/{prId}/{filename}
-      if (parts.length >= 4) {
-        const prId = parts[2];
-        const filename = parts.slice(3).join("/");
-        const filePath = path.join(__dirname, "out", prId, filename);
+      try {
+        const url = new URL(req.url, `http://localhost:${WORKER_PORT}`);
+        const parts = url.pathname.split("/");
+        if (parts.length >= 4) {
+          const prId = parts[2];
+          const filename = parts.slice(3).join("/");
+          const outRoot = path.resolve(__dirname, "out");
+          const filePath = path.resolve(outRoot, prId, filename);
 
-        if (!fs.existsSync(filePath)) {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "File not found" }));
+          // Path traversal guard
+          if (!filePath.startsWith(outRoot + path.sep)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Invalid path" }));
+            return;
+          }
+
+          if (!fs.existsSync(filePath)) {
+            res.writeHead(404, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "File not found" }));
+            return;
+          }
+
+          const stat = fs.statSync(filePath);
+          const fileStream = fs.createReadStream(filePath);
+
+          res.writeHead(200, {
+            "Content-Type": "video/mp4",
+            "Content-Length": stat.size.toString(),
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": `attachment; filename="${filename}"`,
+          });
+
+          fileStream.pipe(res);
           return;
         }
-
-        const stat = fs.statSync(filePath);
-        const fileStream = fs.createReadStream(filePath);
-
-        res.writeHead(200, {
-          "Content-Type": "video/mp4",
-          "Content-Length": stat.size.toString(),
-          "Accept-Ranges": "bytes",
-          "Content-Disposition": `attachment; filename="${filename}"`,
-        });
-
-        fileStream.pipe(res);
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Invalid path" }));
         return;
       }
     }
@@ -235,13 +253,7 @@ async function main() {
     console.log(`[worker] HTTP server listening on port ${WORKER_PORT}`);
   });
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    console.error("[worker] DATABASE_URL not set");
-    process.exit(1);
-  }
-
-  const boss = new PgBoss(connectionString);
+  const boss = new PgBoss(process.env.DATABASE_URL || connectionString);
   await boss.start();
 
   console.log("[worker] Started, waiting for jobs...");

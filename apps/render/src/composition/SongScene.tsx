@@ -1,4 +1,4 @@
-import { Composition, useVideoConfig, useCurrentFrame } from "remotion";
+import { useVideoConfig } from "remotion";
 import { RenderInputProps } from "../types";
 import { VideoPlayer } from "../components/VideoPlayer";
 import { TitleBar } from "../components/TitleBar";
@@ -12,11 +12,8 @@ interface SongSceneProps {
 }
 
 export const SongScene: React.FC<SongSceneProps> = ({ songData, videoCdnPrefix }) => {
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const { song } = songData;
-
-  // Calculate actual duration from clipDurationSeconds
-  const actualDurationInFrames = Math.round(song.clipDurationSeconds * fps);
 
   return (
     <div
@@ -37,27 +34,5 @@ export const SongScene: React.FC<SongSceneProps> = ({ songData, videoCdnPrefix }
       <TotalScoreBox props={{ songData, videoCdnPrefix }} />
       <CaptionBar props={{ songData, videoCdnPrefix }} />
     </div>
-  );
-};
-
-interface RootProps {
-  songData: RenderInputProps["songData"];
-  videoCdnPrefix: string;
-}
-
-export const Root: React.FC<RootProps> = ({ songData, videoCdnPrefix }) => {
-  const { song } = songData;
-  const durationInFrames = Math.round(song.clipDurationSeconds * 23.976);
-
-  return (
-    <Composition
-      id="SongScene"
-      component={SongScene as any}
-      durationInFrames={durationInFrames}
-      fps={23.976}
-      width={1920}
-      height={1080}
-      defaultProps={{ songData, videoCdnPrefix }}
-    />
   );
 };

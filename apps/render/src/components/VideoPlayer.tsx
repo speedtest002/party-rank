@@ -1,4 +1,4 @@
-import { useVideoConfig } from "remotion";
+import { OffthreadVideo, useVideoConfig } from "remotion";
 import { RenderInputProps } from "../types";
 
 interface VideoPlayerProps {
@@ -6,20 +6,22 @@ interface VideoPlayerProps {
 }
 
 export function VideoPlayer({ props }: VideoPlayerProps) {
-  const { fps, durationInFrames } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const { songData, videoCdnPrefix } = props;
   const { song } = songData;
 
   const videoSrc = `${videoCdnPrefix}${song.videoUrl}`;
-  const totalFrames = Math.round(song.clipDurationSeconds * fps);
+
+  // Play the range [clipStartSeconds, clipStartSeconds + clipDurationSeconds)
+  // of the source file, in frames.
+  const trimBefore = Math.max(0, Math.round((song.clipStartSeconds || 0) * fps));
+  const trimAfter = Math.round((song.clipStartSeconds + song.clipDurationSeconds) * fps);
 
   return (
-    <video
+    <OffthreadVideo
       src={videoSrc}
-      autoPlay
-      loop
-      muted={false}
-      playsInline
+      trimBefore={trimBefore}
+      trimAfter={trimAfter}
       style={{
         position: "absolute",
         top: 0,

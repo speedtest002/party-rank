@@ -1,10 +1,12 @@
 import { Client } from "pg";
+import { isBotSecret } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
+  BOT_SECRET?: string;
 }
 
 interface EventContext {
@@ -103,7 +105,7 @@ const songTypeToString = (type: 1 | 2 | 3): "OP" | "ED" | "IN" => {
       return "OP";
     case 2:
       return "ED";
-    case 3:
+    default:
       return "IN";
   }
 };
@@ -131,7 +133,7 @@ async function handleGet(context: EventContext) {
     // 2. Get songs with results (only revealed party ranks should have render data)
     const songsRes = await client.query<SongResultRow>(
       `SELECT s.ann_song_id, s.ann_id, s.anime, s.song_title, s.artist, s.song_type, s.position,
-              sr.vote_count, sr.avg_score, sr.avg_rank, sr.min_score, sr.max_score, sr.final_rank,
+              sr.vote_count::int, sr.avg_score, sr.avg_rank, sr.min_score, sr.max_score, sr.final_rank::int,
               s.video_url, s.cover_url, s.clip_start_seconds, s.clip_duration_seconds
        FROM songs s
        JOIN song_results sr ON sr.pr_id = s.pr_id AND sr.ann_song_id = s.ann_song_id
@@ -151,7 +153,7 @@ async function handleGet(context: EventContext) {
 
     // 4. Get all scores for this PR
     const scoresRes = await client.query<ScoreRow>(
-      `SELECT ann_song_id, participant_id, rank, score FROM scores WHERE pr_id = $1`,
+      `SELECT ann_song_id, participant_id, rank, score::float FROM scores WHERE pr_id = $1`,
       [prId]
     );
 
@@ -208,7 +210,7 @@ async function handleGet(context: EventContext) {
         partyRankName,
         song: {
           annSongId: song.ann_song_id,
-          rank: song.final_rank,
+          rank: Number(song.final_rank),
           totalSongs,
           animeName: song.anime,
           songTitle: song.song_title,
@@ -219,7 +221,7 @@ async function handleGet(context: EventContext) {
           clipStartSeconds: Number(song.clip_start_seconds),
           clipDurationSeconds: Number(song.clip_duration_seconds),
           avgScore: Number(song.avg_score),
-          voteCount: song.vote_count,
+          voteCount: Number(song.vote_count),
         },
         participants,
       });
@@ -249,6 +251,14 @@ export const onRequest = async (context: EventContext) => {
 
   if (method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  // Internal endpoint — only the render worker (authenticated by BOT_SECRET) may use it
+  if (!isBotSecret(request, env)) {
+    return new Response(JSON.stringify({ error: "Unauthorized." }), {
+      status: 401,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 
   try {

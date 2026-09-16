@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import useSWR from 'swr';
-import { SignedIn, SignedOut, SignIn, UserButton, useAuth } from '@clerk/clerk-react';
+import { SignedIn, SignIn, UserButton, useAuth } from '@clerk/clerk-react';
 import type { PartyRank, Participant, SongResult, Song } from '../types';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -290,7 +290,7 @@ const ResultsTab = ({
   const [msg, setMsg]         = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showRenderModal, setShowRenderModal] = useState(false);
   const [renderProgress, setRenderProgress] = useState<{ done: number; total: number; items: any[] } | null>(null);
-  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const maxAvg = useMemo(() => Math.max(...results.map(r => r.avg_score ?? 0), 1), [results]);
 
@@ -332,14 +332,15 @@ const ResultsTab = ({
   };
 
   const startRenderPolling = () => {
-    const interval = setInterval(async () => {
+    stopRenderPolling();
+    pollRef.current = setInterval(async () => {
       try {
         const token = await getToken();
         const res = await fetch(`/api/party-rank/${slug}/render-progress`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) {
-          const data = await res.json();
+          const data = (await res.json()) as { done: number; total: number; items: any[] };
           setRenderProgress(data);
           if (data.done >= data.total && data.total > 0) {
             stopRenderPolling();
@@ -349,13 +350,12 @@ const ResultsTab = ({
         console.error('Failed to fetch render progress:', e);
       }
     }, 3000);
-    setPollInterval(interval);
   };
 
   const stopRenderPolling = () => {
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      setPollInterval(null);
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
     }
   };
 
@@ -366,7 +366,7 @@ const ResultsTab = ({
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as { downloadUrl?: string };
         if (data.downloadUrl) {
           window.open(data.downloadUrl, '_blank');
         }
@@ -641,9 +641,11 @@ const SongsTab = ({
     try {
       await patchAction({
         action: 'update_song',
-        ann_song_id: annSongId,
-        clip_start_seconds: parseFloat(timing.clip_start_seconds) || 0,
-        clip_duration_seconds: parseFloat(timing.clip_duration_seconds) || 8,
+        data: {
+          ann_song_id: annSongId,
+          clip_start_seconds: parseFloat(timing.clip_start_seconds) || 0,
+          clip_duration_seconds: parseFloat(timing.clip_duration_seconds) || 8,
+        },
       });
       setMsg({ type: 'success', text: 'Clip timing saved.' });
       mutate();

@@ -25,7 +25,7 @@ async function renderSongVideo(options: RenderOptions): Promise<string> {
   fs.mkdirSync(outputDir, { recursive: true });
 
   console.log(`[render] Bundling composition...`);
-  const bundlePath = await bundle(path.join(__dirname, "src/Root.tsx"));
+  const bundlePath = await bundle({ entryPoint: path.join(__dirname, "src/index.ts") });
 
   console.log(`[render] Selecting composition...`);
   const composition = await selectComposition({
@@ -55,7 +55,7 @@ async function renderSongVideo(options: RenderOptions): Promise<string> {
 // CLI entry point
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length < 4) {
+  if (args.length < 5) {
     console.error("Usage: tsx render.ts <prId> <annSongId> <render-data-json> <output-dir> <video-cdn-prefix>");
     process.exit(1);
   }

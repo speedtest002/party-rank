@@ -1,5 +1,6 @@
 import React from 'react';
 import { Routes, Route } from 'react-router-dom';
+import { AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import PartyRankList from './pages/PartyRankList';
@@ -12,6 +13,7 @@ const App = () => {
     <Layout>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
         <Route path="/party-rank" element={<PartyRankList />} />
         <Route path="/party-rank/:slug/master" element={<MasterDashboard />} />
         <Route path="/party-rank/:slug/vote" element={<ParticipantRank />} />

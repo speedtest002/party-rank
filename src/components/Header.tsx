@@ -1,14 +1,18 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth, useUser, useClerk } from '@clerk/clerk-react';
+import { useAuth, useUser, useSignIn } from '@clerk/clerk-react';
 
 const Header = () => {
   const { isLoaded, isSignedIn, signOut } = useAuth();
   const { user } = useUser();
-  const clerk = useClerk();
+  const { signIn } = useSignIn();
 
   const handleLogin = () => {
-    clerk.openSignIn({ strategy: 'oauth_discord' });
+    signIn?.authenticateWithRedirect({
+      strategy: 'oauth_discord',
+      redirectUrl: window.location.pathname,
+      redirectUrlComplete: window.location.pathname,
+    });
   };
 
   return (

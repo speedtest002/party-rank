@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import { resolveAuthUser } from "../../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
@@ -6,6 +7,7 @@ import { Client } from "pg";
 interface Env {
   DB: { connectionString: string };
   RENDER_WORKER_URL?: string;
+  BOT_SECRET?: string;
 }
 
 interface EventContext {
@@ -61,7 +63,7 @@ async function handleGet(context: EventContext) {
 
     return json({
       downloadUrl,
-      filename: `${pr}-${annSongId}.mp4`,
+      filename: `${prId}-${annSongId}.mp4`,
     });
   } finally {
     await client.end();
@@ -72,7 +74,7 @@ async function handleGet(context: EventContext) {
 // Route handler
 // ----------------------------------------------------------------
 export const onRequest = async (context: EventContext) => {
-  const { request, params } = context;
+  const { request, env } = context;
   const method = request.method.toUpperCase();
   const cors = {
     "Access-Control-Allow-Origin": "*",
@@ -86,6 +88,15 @@ export const onRequest = async (context: EventContext) => {
 
   if (method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  // Host-only: authenticate via Clerk session (or BOT_SECRET for the render worker)
+  const authUser = await resolveAuthUser(request, env);
+  if (!authUser) {
+    return new Response(JSON.stringify({ error: "Unauthorized." }), {
+      status: 401,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 
   try {

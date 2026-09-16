@@ -1,10 +1,12 @@
 import { Client } from "pg";
+import { resolveAuthUser } from "../../../lib/clerk";
 
 // ----------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------
 interface Env {
   DB: { connectionString: string };
+  BOT_SECRET?: string;
 }
 
 interface EventContext {
@@ -101,6 +103,15 @@ export const onRequest = async (context: EventContext) => {
 
   if (method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  // Host-only: authenticate via Clerk session (or BOT_SECRET for the render worker)
+  const authUser = await resolveAuthUser(request, env);
+  if (!authUser) {
+    return new Response(JSON.stringify({ error: "Unauthorized." }), {
+      status: 401,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 
   try {

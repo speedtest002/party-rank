@@ -3,6 +3,7 @@
 
 export interface VideoRenderJob {
   prId: string;
+  slug: string;
   songIds: number[];
 }
 

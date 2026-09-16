@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "remotion studio",
-    "build": "remotion bundle",
+    "dev": "remotion studio ./src/index.ts",
+    "build": "remotion bundle ./src/index.ts",
     "render": "tsx render.ts",
     "worker": "tsx worker.ts",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
+    "@remotion/bundler": "^4.0.185",
     "@remotion/cli": "^4.0.185",
     "@remotion/renderer": "^4.0.185",
+    "pg": "^8.18.0",
     "pg-boss": "^12.32.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@remotion/eslint-config": "^4.0.185",
     "@types/node": "^20.10.0",
+    "@types/pg": "^8.18.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "eslint": "^8.56.0",
