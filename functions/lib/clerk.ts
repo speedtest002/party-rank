@@ -1,4 +1,5 @@
 import { verifyToken, createClerkClient } from "@clerk/backend";
+import { resolveDiscordAvatars } from "./discord";
 
 // ----------------------------------------------------------------
 // Shared auth for Functions.
@@ -66,52 +67,61 @@ export function isBotSecret(request: Request, env: ClerkEnv): boolean {
 // ----------------------------------------------------------------
 // Resolve the *current* Discord avatar URL for a set of Discord IDs.
 //
-// Clerk keeps an up-to-date snapshot of each user's Discord external
-// account (including the avatar hash), refreshed whenever the user logs in.
-// We use that instead of the possibly-stale URL cached in our DB.
+// Priority:
+//   1. Discord Bot API (real-time, always current if bot shares a guild)
+//   2. Clerk externalAccount.imageUrl (current only if user logged in recently)
+//   3. omit → caller keeps the DB-cached URL + composition onError fallback
 //
-// Returns Map<discordId, currentAvatarUrl>. IDs with no Clerk match (or
-// with no Discord external account) are omitted — callers should keep the
-// cached URL and rely on the composition's onError fallback.
+// Returns Map<discordId, currentAvatarUrl>.
 // ----------------------------------------------------------------
 export async function resolveCurrentAvatars(
   clerkSecretKey: string,
   clerkPublishableKey: string | undefined,
-  discordIds: string[]
+  discordIds: string[],
+  opts?: { botToken?: string | undefined; guildId?: string | undefined | null }
 ): Promise<Map<string, string>> {
+  const wanted = Array.from(new Set(discordIds.filter((id) => id)));
+  if (wanted.length === 0) return new Map();
+
+  // ---- Layer 1: Discord Bot API (always freshest) ----
   const result = new Map<string, string>();
-  const wanted = new Set(discordIds);
-  if (wanted.size === 0) return result;
+  if (opts?.botToken) {
+    const fromDiscord = await resolveDiscordAvatars(opts.botToken, opts.guildId, wanted);
+    for (const [id, url] of fromDiscord) result.set(id, url);
+    if (result.size === wanted.length) return result; // all resolved — skip Clerk
+  }
 
-  const clerk = createClerkClient({
-    secretKey: clerkSecretKey,
-    publishableKey: clerkPublishableKey,
-  });
-
-  // Clerk's getUserList() `externalId` filter does not match external-account
-  // IDs, so paginate all users and match client-side. PartyRank's user base
-  // is small (a party of friends), so this stays a single call in practice.
-  try {
-    let offset = 0;
-    for (;;) {
-      const page = await clerk.users.getUserList({
-        limit: 100,
-        offset,
-      });
-      for (const user of page.data) {
-        const discordAccount = user.externalAccounts?.find(
-          (a) => a.provider === "discord" || a.provider === "oauth_discord"
-        );
-        if (discordAccount?.imageUrl && wanted.has(discordAccount.externalId)) {
-          result.set(discordAccount.externalId, discordAccount.imageUrl);
-          wanted.delete(discordAccount.externalId);
+  // ---- Layer 2: Clerk (for IDs Discord couldn't resolve) ----
+  const stillWanted = wanted.filter((id) => !result.has(id));
+  if (stillWanted.length > 0 && clerkSecretKey) {
+    const clerk = createClerkClient({
+      secretKey: clerkSecretKey,
+      publishableKey: clerkPublishableKey,
+    });
+    try {
+      let offset = 0;
+      for (;;) {
+        const page = await clerk.users.getUserList({
+          limit: 100,
+          offset,
+        });
+        for (const user of page.data) {
+          const discordAccount = user.externalAccounts?.find(
+            (a) => a.provider === "discord" || a.provider === "oauth_discord"
+          );
+          if (
+            discordAccount?.imageUrl &&
+            stillWanted.includes(discordAccount.externalId)
+          ) {
+            result.set(discordAccount.externalId, discordAccount.imageUrl);
+          }
         }
+        if (page.data.length < 100) break;
+        offset += page.data.length;
       }
-      if (page.data.length < 100 || wanted.size === 0) break;
-      offset += page.data.length;
+    } catch (err) {
+      console.error("[clerk] resolveCurrentAvatars fallback failed:", err);
     }
-  } catch (err) {
-    console.error("[clerk] resolveCurrentAvatars failed:", err);
   }
 
   return result;

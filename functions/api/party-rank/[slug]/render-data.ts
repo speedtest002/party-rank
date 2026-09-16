@@ -10,6 +10,7 @@ interface Env {
   CLERK_PUBLISHABLE_KEY?: string;
   BOT_SECRET?: string;
   VIDEO_CDN_PREFIX?: string;
+  DISCORD_BOT_TOKEN?: string;
 }
 
 interface EventContext {
@@ -72,6 +73,7 @@ interface ParticipantRow {
   discord_id: string;
   discord_username: string | null;
   discord_avatar: string | null;
+  avatar_updated_at: string | null;
 }
 
 interface ScoreRow {
@@ -127,11 +129,11 @@ async function handleGet(context: EventContext) {
   try {
     // 1. Get party rank info
     const prRes = await client.query(
-      `SELECT id, name FROM party_ranks WHERE slug = $1`,
+      `SELECT id, name, discord_guild_id FROM party_ranks WHERE slug = $1`,
       [pr]
     );
     if (prRes.rowCount === 0) return json({ error: "Party Rank not found." }, 404);
-    const { id: prId, name: partyRankName } = prRes.rows[0];
+    const { id: prId, name: partyRankName, discord_guild_id: guildId } = prRes.rows[0];
 
     // 2. Get songs with results (only revealed party ranks should have render data)
     const songsRes = await client.query<SongResultRow>(
@@ -149,7 +151,7 @@ async function handleGet(context: EventContext) {
 
     // 3. Get all participants for this PR
     const participantsRes = await client.query<ParticipantRow>(
-      `SELECT id, discord_id, discord_username, discord_avatar FROM participants WHERE pr_id = $1`,
+      `SELECT id, discord_id, discord_username, discord_avatar, avatar_updated_at FROM participants WHERE pr_id = $1`,
       [prId]
     );
     const participantMap = new Map(participantsRes.rows.map((p) => [p.id, p]));
@@ -189,24 +191,27 @@ async function handleGet(context: EventContext) {
       }
     }
 
-    // Resolve current avatars from Clerk (best-effort) and persist back to DB
+    // Resolve current avatars from Discord Bot → Clerk (best-effort) and persist back
     let freshAvatars = new Map<string, string>();
-    if (discordIds.length > 0 && env.CLERK_SECRET_KEY) {
+    if (discordIds.length > 0 && (env.DISCORD_BOT_TOKEN || env.CLERK_SECRET_KEY)) {
       freshAvatars = await resolveCurrentAvatars(
-        env.CLERK_SECRET_KEY,
+        env.CLERK_SECRET_KEY || "",
         env.CLERK_PUBLISHABLE_KEY,
-        discordIds
+        discordIds,
+        { botToken: env.DISCORD_BOT_TOKEN, guildId }
       );
       if (freshAvatars.size > 0) {
         for (const [discordId, avatarUrl] of freshAvatars) {
           // Update users table (global)
           await client.query(
-            `UPDATE users SET discord_avatar = $1 WHERE discord_id = $2 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            `UPDATE users SET discord_avatar = $1, avatar_updated_at = now()
+             WHERE discord_id = $2 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
             [avatarUrl, discordId]
           );
           // Update participants table (per-PR) — this is where render-data reads from
           await client.query(
-            `UPDATE participants SET discord_avatar = $1 WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            `UPDATE participants SET discord_avatar = $1, avatar_updated_at = now()
+             WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
             [avatarUrl, discordId, prId]
           );
         }

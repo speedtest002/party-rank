@@ -19,6 +19,9 @@ CREATE TABLE "user" (
   "emailVerified" BOOLEAN NOT NULL DEFAULT FALSE,
   image           TEXT,
   role            TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  discord_username TEXT,
+  discord_avatar  TEXT,
+  avatar_updated_at TIMESTAMPTZ,
 
   "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -156,6 +159,7 @@ CREATE TABLE participants (
   discord_id      TEXT NOT NULL REFERENCES "user"(discord_id) ON DELETE CASCADE,
   discord_username TEXT,
   discord_avatar  TEXT,
+  avatar_updated_at TIMESTAMPTZ,
 
   -- token ngẫu nhiên dùng trong URL — UNIQUE tự tạo index, không cần CREATE INDEX thêm
   token           TEXT NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(16), 'hex'),

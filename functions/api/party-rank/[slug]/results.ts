@@ -8,6 +8,7 @@ interface Env {
   DB: { connectionString: string };
   CLERK_SECRET_KEY?: string;
   CLERK_PUBLISHABLE_KEY?: string;
+  DISCORD_BOT_TOKEN?: string;
 }
 
 interface EventContext {
@@ -118,7 +119,8 @@ async function handleGet(context: EventContext) {
               sc.score::float,
               p.discord_id,
               p.discord_username,
-              p.discord_avatar
+              p.discord_avatar,
+              p.avatar_updated_at
        FROM scores sc
        JOIN participants p ON p.id = sc.participant_id
        WHERE sc.pr_id = $1
@@ -132,20 +134,33 @@ async function handleGet(context: EventContext) {
       { discord_id: string; discord_username: string; discord_avatar: string | null; rank: number; score: number }[]
     > = {};
 
-    // Collect unique participant discord IDs for avatar refresh
-    const discordIds = Array.from(new Set(breakdownRes.rows.map((r) => r.discord_id)));
+    // Collect unique participant discord IDs whose avatar cache is stale (>24h, or never fetched)
+    const staleById = new Map<string, boolean>();
+    for (const row of breakdownRes.rows) {
+      if (!staleById.has(row.discord_id)) {
+        const updatedAt = row.avatar_updated_at ? new Date(row.avatar_updated_at) : null;
+        const stale = !updatedAt || Date.now() - updatedAt.getTime() > 24 * 60 * 60 * 1000;
+        staleById.set(row.discord_id, stale);
+      }
+    }
+    const discordIds = Array.from(staleById.entries())
+      .filter(([, stale]) => stale)
+      .map(([id]) => id);
+
     let freshAvatars = new Map<string, string>();
-    if (discordIds.length > 0 && env.CLERK_SECRET_KEY) {
+    if (discordIds.length > 0 && (env.DISCORD_BOT_TOKEN || env.CLERK_SECRET_KEY)) {
       freshAvatars = await resolveCurrentAvatars(
-        env.CLERK_SECRET_KEY,
+        env.CLERK_SECRET_KEY || "",
         env.CLERK_PUBLISHABLE_KEY,
-        discordIds
+        discordIds,
+        { botToken: env.DISCORD_BOT_TOKEN, guildId: partyRank.discord_guild_id }
       );
       if (freshAvatars.size > 0) {
         for (const [did, avatarUrl] of freshAvatars) {
-          // Persist freshness back so subsequent requests skip the Clerk lookup
+          // Persist freshness back so subsequent requests skip the lookup
           await client.query(
-            `UPDATE participants SET discord_avatar = $1 WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
+            `UPDATE participants SET discord_avatar = $1, avatar_updated_at = now()
+             WHERE discord_id = $2 AND pr_id = $3 AND (discord_avatar IS NULL OR discord_avatar <> $1)`,
             [avatarUrl, did, partyRank.id]
           );
         }
