@@ -46,7 +46,7 @@ export async function resolveAuthUser(
 
     const user = await clerk.users.getUser(userId);
     const discord = user.externalAccounts.find(
-      (a: any) => a.provider === "oauth_discord"
+      (a: any) => a.provider === "discord" || a.provider === "oauth_discord"
     );
 
     return discord?.externalId || userId;
